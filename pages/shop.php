@@ -69,7 +69,7 @@ function getDashboardLink($role) {
     switch ($role) {
         case 'admin': return '../admin/dashboard.php';
         case 'staff': return '../admin/staff-dashboard.php';
-        default: return '../users/dashboard.php';
+        default: return '../pages/users/dashboard.php';
     }
 }
 ?>
@@ -233,19 +233,19 @@ function getDashboardLink($role) {
                                 <li><a class="dropdown-item" href="<?php echo getDashboardLink($userRole); ?>">
                                     <i class="fas fa-tachometer-alt"></i> Dashboard
                                 </a></li>
-                                <li><a class="dropdown-item" href="../users/orders.php">
+                                <li><a class="dropdown-item" href="../pages/users/orders.php">
                                     <i class="fas fa-shopping-bag"></i> My Orders
                                 </a></li>
-                                <li><a class="dropdown-item" href="../users/notifications.php">
+                                <li><a class="dropdown-item" href="../pages/users/notifications.php">
                                     <i class="fas fa-bell"></i> Notifications
                                 </a></li>
-                                <li><a class="dropdown-item" href="../users/profile.php">
+                                <li><a class="dropdown-item" href="../pages/users/profile.php">
                                     <i class="fas fa-user-cog"></i> Profile Settings
                                 </a></li>
                                 <li><hr class="dropdown-divider"></li>
-                                <li><a class="dropdown-item text-danger" href="../logout.php">
+                                <li><a class="dropdown-item text-danger" href="../pages/logout.php">
                                     <i class="fas fa-sign-out-alt"></i> Logout
-                                </a></li>
+                                </a></li
                             </ul>
                         </div>
                     <?php else: ?>
