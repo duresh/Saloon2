@@ -278,6 +278,11 @@ $current_page = basename($_SERVER['PHP_SELF']);
                 </a>
             </li>
             <li class="nav-item">
+                <a class="nav-link" href="staff-orders.php">
+                    <i class="fa fa-star" aria-hidden="true"></i> Orders
+                </a>
+            </li>
+            <li class="nav-item">
                 <a class="nav-link active" href="staff-ratings.php">
                     <i class="fa fa-star" aria-hidden="true"></i> Staff Ratings
                 </a>
