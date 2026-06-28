@@ -216,8 +216,8 @@ function getDashboardName($role) {
                                 <li><hr class="dropdown-divider"></li>
                                 <li><a class="dropdown-item" href="pages/shop.php"><i class="bi bi-bag"></i> Shop Products</a></li>
                                 <li><a class="dropdown-item" href="#booking"><i class="bi bi-calendar"></i> My Appointments</a></li>
-                                <li><a class="dropdown-item" href="pages/shop.php?view=orders"><i class="bi bi-receipt"></i> My Orders</a></li>
-                                <li><a class="dropdown-item" href="#"><i class="bi bi-person"></i> My Profile</a></li>
+                                <li><a class="dropdown-item" href="pages/users/orders.php"><i class="bi bi-receipt"></i> My Orders</a></li>
+                                <li><a class="dropdown-item" href="pages/users/profile.php"><i class="bi bi-person"></i> My Profile</a></li>
                                 <li><hr class="dropdown-divider"></li>
                                 <li><a class="dropdown-item text-danger" href="?logout=1"><i class="bi bi-box-arrow-right"></i> Logout</a></li>
                             </ul>
