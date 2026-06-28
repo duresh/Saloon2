@@ -1,0 +1,137 @@
+2026-03-22 05:21:39 - === New Request ===
+2026-03-22 05:21:39 - POST Data: Array
+(
+    [appointment_id] => 24
+    [service_id] => 7
+    [staff_id] => 1
+    [date] => 2026-03-26
+    [time] => 12:30
+    [notes] => undefined
+    [reason] => undefined
+)
+
+2026-03-22 05:21:39 - Session: Array
+(
+    [user_id] => 6
+    [user] => Duresh Weerasekara
+    [role] => admin
+    [email] => duresh@gmail.com
+    [logged_in] => 1
+)
+
+2026-03-22 05:24:16 - === New Request ===
+2026-03-22 05:24:16 - POST Data: Array
+(
+    [appointment_id] => 24
+    [service_id] => 7
+    [staff_id] => 1
+    [date] => 2026-03-24
+    [time] => 10:30
+    [notes] => undefined
+    [reason] => undefined
+)
+
+2026-03-22 05:24:16 - Session: Array
+(
+    [user_id] => 6
+    [user] => Duresh Weerasekara
+    [role] => admin
+    [email] => duresh@gmail.com
+    [logged_in] => 1
+)
+
+2026-03-22 05:24:16 - Parsed data: appointment_id=24, service_id=7, staff_id=1, date=2026-03-24, time=10:30
+2026-03-22 05:24:16 - Connecting to database...
+2026-03-22 05:24:16 - Database connected. Admin ID: 6
+2026-03-22 05:24:16 - Transaction started
+2026-03-22 05:24:16 - Executing query: 
+        SELECT a.*, s.duration, s.name as service_name, 
+               u.fName as customer_name, u.email as customer_email
+        FROM appointments a
+        JOIN services s ON a.service_id = s.id
+        JOIN reg u ON a.user_id = u.regID
+        WHERE a.id = ? FOR UPDATE
+    
+2026-03-22 05:24:16 - Current appointment data: Array
+(
+    [id] => 24
+    [user_id] => 3
+    [service_id] => 7
+    [staff_id] => 1
+    [appointment_date] => 2026-03-25
+    [appointment_time] => 13:00:00
+    [status] => confirmed
+    [notes] => 
+    [created_at] => 2026-03-15 11:19:49
+    [modified_at] => 2026-03-15 15:28:24
+    [reschedule_count] => 0
+    [last_reschedule_at] => 
+    [reschedule_note] => 
+    [duration] => 60
+    [service_name] => Massage
+    [customer_name] => Saman Perera
+    [customer_email] => saman@gmail.com
+)
+
+2026-03-22 05:24:17 - Appointment updated successfully
+2026-03-22 05:24:17 - Reschedule values: old_staff_id=1, new_staff_id=1
+2026-03-22 05:24:17 - Reschedule recorded with ID: 5
+2026-03-22 05:24:17 - Transaction committed
+2026-03-22 05:25:18 - === New Request ===
+2026-03-22 05:25:18 - POST Data: Array
+(
+    [appointment_id] => 17
+    [service_id] => 5
+    [staff_id] => 
+    [date] => 2026-03-25
+    [time] => 19:30
+    [notes] => undefined
+    [reason] => undefined
+)
+
+2026-03-22 05:25:18 - Session: Array
+(
+    [user_id] => 6
+    [user] => Duresh Weerasekara
+    [role] => admin
+    [email] => duresh@gmail.com
+    [logged_in] => 1
+)
+
+2026-03-22 05:25:18 - Parsed data: appointment_id=17, service_id=5, staff_id=0, date=2026-03-25, time=19:30
+2026-03-22 05:25:18 - Connecting to database...
+2026-03-22 05:25:18 - Database connected. Admin ID: 6
+2026-03-22 05:25:18 - Transaction started
+2026-03-22 05:25:18 - Executing query: 
+        SELECT a.*, s.duration, s.name as service_name, 
+               u.fName as customer_name, u.email as customer_email
+        FROM appointments a
+        JOIN services s ON a.service_id = s.id
+        JOIN reg u ON a.user_id = u.regID
+        WHERE a.id = ? FOR UPDATE
+    
+2026-03-22 05:25:18 - Current appointment data: Array
+(
+    [id] => 17
+    [user_id] => 5
+    [service_id] => 5
+    [staff_id] => 
+    [appointment_date] => 2026-02-28
+    [appointment_time] => 13:30:00
+    [status] => completed
+    [notes] => 
+    [created_at] => 2026-02-21 11:36:36
+    [modified_at] => 2026-03-15 15:07:01
+    [reschedule_count] => 0
+    [last_reschedule_at] => 
+    [reschedule_note] => 
+    [duration] => 60
+    [service_name] => Facial
+    [customer_name] => Pasan Dissanayake
+    [customer_email] => pasan@gmail.com
+)
+
+2026-03-22 05:25:18 - Appointment updated successfully
+2026-03-22 05:25:18 - Reschedule values: old_staff_id=, new_staff_id=
+2026-03-22 05:25:18 - Reschedule recorded with ID: 6
+2026-03-22 05:25:18 - Transaction committed

@@ -1,0 +1,23 @@
+RewriteEngine On
+
+#Hide the contents of directories
+
+IndexIgnore *
+
+#Disable directory browsing
+Options -Indexes
+
+# Deny access to filenames starting with dot(.)
+<FilesMatch "^\.">
+Order allow,deny
+Deny from all
+</FilesMatch>
+
+# Resolve .php file for extensionless PHP URLs
+RewriteRule ^([^/.]+)$ $1.php [L]
+
+RewriteRule ^(.*)\.html$ $1.php [L]
+
+RewriteRule ^(.*)\.aspx$ $1.php [L]
+
+RewriteRule ^(.*)\.jsp$ $1.php [L]
