@@ -7,10 +7,15 @@ $isLoggedIn = isset($_SESSION['logged_in']) && $_SESSION['logged_in'] === true;
 $userId = null;
 $userFname = '';
 $userRole = '';
+$userPhone = '';
+$userAddress = '';
+$userShippingAddress = '';
 
 if ($isLoggedIn && isset($_SESSION['user_id'])) {
     try {
         $pdo = getPDOConnection();
+        
+        // Get user details
         $stmt = $pdo->prepare("SELECT fName, lName, email, role, regID, contactNo FROM reg WHERE regID = ? AND cStatus = 1");
         $stmt->execute([$_SESSION['user_id']]);
         $user = $stmt->fetch();
@@ -18,11 +23,25 @@ if ($isLoggedIn && isset($_SESSION['user_id'])) {
             $userId = $user['regID'];
             $userFname = $user['fName'];
             $userRole = $user['role'];
+            $userPhone = $user['contactNo'] ?? '';
             $_SESSION['user_role'] = $user['role'];
             $_SESSION['role'] = $user['role'];
         }
+        
+        // Get user profile for shipping details
+        $stmt = $pdo->prepare("SELECT phone, address, shipping_address FROM user_profiles WHERE user_id = ?");
+        $stmt->execute([$_SESSION['user_id']]);
+        $profile = $stmt->fetch();
+        if ($profile) {
+            // Prefer profile phone, fallback to reg contactNo
+            $userPhone = $profile['phone'] ?: $userPhone;
+            $userAddress = $profile['address'] ?? '';
+            $userShippingAddress = $profile['shipping_address'] ?? '';
+        }
+        
     } catch (Exception $e) {
         // Ignore
+        error_log("User profile fetch error: " . $e->getMessage());
     }
 }
 
@@ -54,11 +73,12 @@ function getDashboardLink($role) {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Saloon Elegance - Shop</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- Bootstrap 5 CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,300;400;600;700;800&display=swap" rel="stylesheet">
-    <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    
     <style>
         * { font-family: 'Inter', sans-serif; }
         body { background: #fefaf5; }
@@ -95,12 +115,8 @@ function getDashboardLink($role) {
         .section-title { border-left: 6px solid #b85c1a; padding-left: 1rem; font-weight: 700; }
         .badge-offer { background: #e85d04; color: white; font-size: 0.7rem; border-radius: 20px; padding: 0.2rem 0.7rem; }
         
-        .add-to-cart-btn {
-            transition: all 0.3s ease;
-        }
-        .add-to-cart-btn:active {
-            transform: scale(0.95);
-        }
+        .add-to-cart-btn { transition: all 0.3s ease; }
+        .add-to-cart-btn:active { transform: scale(0.95); }
         
         .notification-area {
             position: fixed;
@@ -108,6 +124,38 @@ function getDashboardLink($role) {
             right: 20px;
             z-index: 9999;
             max-width: 350px;
+        }
+        
+        .loader {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #b85c1a;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .checkout-field {
+            position: relative;
+        }
+        .checkout-field .edit-hint {
+            font-size: 0.75rem;
+            color: #6c757d;
+            margin-top: 4px;
+        }
+        .saved-info-badge {
+            background: #e8f5e9;
+            color: #2e7d32;
+            font-size: 0.7rem;
+            padding: 2px 10px;
+            border-radius: 20px;
+            display: inline-block;
+            margin-left: 8px;
         }
     </style>
 </head>
@@ -152,6 +200,9 @@ function getDashboardLink($role) {
                                 </a></li>
                                 <li><a class="dropdown-item" href="../users/notifications.php">
                                     <i class="fas fa-bell"></i> Notifications
+                                </a></li>
+                                <li><a class="dropdown-item" href="../users/profile.php">
+                                    <i class="fas fa-user-cog"></i> Profile Settings
                                 </a></li>
                                 <li><hr class="dropdown-divider"></li>
                                 <li><a class="dropdown-item text-danger" href="../logout.php">
@@ -224,7 +275,12 @@ function getDashboardLink($role) {
                 <h2 class="section-title mb-0">Premium <span style="color:#b85c1a;">Products</span></h2>
                 <span id="filteredResultCount" class="badge bg-secondary">0 products</span>
             </div>
-            <div class="row g-4" id="productGrid"></div>
+            <div class="row g-4" id="productGrid">
+                <div class="col-12 text-center py-5">
+                    <div class="loader"></div>
+                    <p class="mt-2 text-muted">Loading products...</p>
+                </div>
+            </div>
         </div>
     </div>
 </div>
@@ -236,7 +292,12 @@ function getDashboardLink($role) {
         <button type="button" class="btn-close" data-bs-dismiss="offcanvas"></button>
     </div>
     <div class="offcanvas-body p-0">
-        <div id="cartItemsContainer" class="cart-sidebar p-3"></div>
+        <div id="cartItemsContainer" class="cart-sidebar p-3">
+            <div class="text-center py-5">
+                <i class="fas fa-shopping-bag fs-1 text-muted"></i>
+                <p class="mt-2 text-muted">Cart is empty</p>
+            </div>
+        </div>
         <div class="border-top p-3 bg-light">
             <div class="d-flex justify-content-between fw-bold fs-5 mb-3">
                 <span>Total:</span>
@@ -252,9 +313,9 @@ function getDashboardLink($role) {
     </div>
 </div>
 
-<!-- Checkout Modal -->
+<!-- Checkout Modal - Updated with saved info -->
 <div class="modal fade" id="checkoutModal" tabindex="-1">
-    <div class="modal-dialog">
+    <div class="modal-dialog modal-lg">
         <div class="modal-content">
             <div class="modal-header">
                 <h5 class="modal-title"><i class="fas fa-credit-card"></i> Checkout</h5>
@@ -262,34 +323,87 @@ function getDashboardLink($role) {
             </div>
             <form id="checkoutForm">
                 <div class="modal-body">
-                    <div class="mb-3">
-                        <label class="form-label">Shipping Address *</label>
-                        <textarea class="form-control" name="shipping_address" required placeholder="Enter your full address"></textarea>
+                    <!-- Shipping Address -->
+                    <div class="mb-3 checkout-field">
+                        <label class="form-label">
+                            Shipping Address *
+                            <?php if (!empty($userShippingAddress)): ?>
+                                <span class="saved-info-badge">
+                                    <i class="fas fa-check-circle"></i> Saved
+                                </span>
+                            <?php endif; ?>
+                        </label>
+                        <textarea class="form-control" name="shipping_address" id="shippingAddress" 
+                                  required placeholder="Enter your full shipping address"
+                                  rows="3"><?php echo htmlspecialchars($userShippingAddress ?: $userAddress); ?></textarea>
+                        <?php if (!empty($userShippingAddress)): ?>
+                            <div class="edit-hint">
+                                <i class="fas fa-info-circle"></i> 
+                                Edit this field to change your shipping address for this order.
+                                <a href="../users/profile.php" class="text-primary">Update saved address</a>
+                            </div>
+                        <?php endif; ?>
                     </div>
-                    <div class="mb-3">
-                        <label class="form-label">Phone Number *</label>
-                        <input type="text" class="form-control" name="phone" required placeholder="Enter phone number">
+                    
+                    <!-- Phone Number -->
+                    <div class="mb-3 checkout-field">
+                        <label class="form-label">
+                            Phone Number *
+                            <?php if (!empty($userPhone)): ?>
+                                <span class="saved-info-badge">
+                                    <i class="fas fa-check-circle"></i> Saved
+                                </span>
+                            <?php endif; ?>
+                        </label>
+                        <input type="text" class="form-control" name="phone" id="phoneNumber" 
+                               required placeholder="Enter phone number"
+                               value="<?php echo htmlspecialchars($userPhone); ?>">
+                        <?php if (!empty($userPhone)): ?>
+                            <div class="edit-hint">
+                                <i class="fas fa-info-circle"></i> 
+                                Edit this field to change your phone number for this order.
+                                <a href="../users/profile.php" class="text-primary">Update saved number</a>
+                            </div>
+                        <?php endif; ?>
                     </div>
+                    
+                    <!-- Payment Method -->
                     <div class="mb-3">
                         <label class="form-label">Payment Method</label>
-                        <select class="form-control" name="payment_method">
+                        <select class="form-control" name="payment_method" id="paymentMethod">
                             <option value="cash_on_delivery">Cash on Delivery</option>
                             <option value="card">Credit/Debit Card</option>
                             <option value="bank_transfer">Bank Transfer</option>
                         </select>
                     </div>
+                    
+                    <!-- Order Notes -->
                     <div class="mb-3">
                         <label class="form-label">Order Notes</label>
-                        <textarea class="form-control" name="notes" placeholder="Any special instructions"></textarea>
+                        <textarea class="form-control" name="notes" placeholder="Any special instructions (optional)" rows="2"></textarea>
                     </div>
-                    <div class="alert alert-info">
+                    
+                    <!-- Save info checkbox -->
+                    <div class="mb-3">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="saveInfoCheck" checked>
+                            <label class="form-check-label" for="saveInfoCheck">
+                                <i class="fas fa-save"></i> Update my saved shipping information
+                            </label>
+                            <small class="text-muted d-block">This will update your profile with the shipping address and phone number entered above.</small>
+                        </div>
+                    </div>
+                    
+                    <!-- Order Summary -->
+                    <div class="alert alert-info mt-3">
                         <strong>Order Summary:</strong><br>
                         <span id="checkoutTotal">LKR 0.00</span>
+                        <br><small class="text-muted">Tax (10%) included in total</small>
                     </div>
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                    <button type="submit" class="btn btn-elegance">
+                    <button type="submit" class="btn btn-elegance" id="placeOrderBtn">
                         <i class="fas fa-check-circle"></i> Place Order
                     </button>
                 </div>
@@ -298,12 +412,34 @@ function getDashboardLink($role) {
     </div>
 </div>
 
+<!-- ============================================ -->
+<!-- SCRIPTS -->
+<!-- ============================================ -->
+<script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+
 <script>
+// ============================================
+// DEBUG
+// ============================================
+console.log('=== Shop Page Debug ===');
+console.log('jQuery version:', $.fn.jquery);
+console.log('SweetAlert2 loaded:', typeof Swal !== 'undefined');
+
 // ============================================
 // PRODUCT DATA
 // ============================================
 const products = <?php echo json_encode($products); ?>;
 let cart = [];
+
+// User saved info from PHP
+const userSavedInfo = {
+    phone: '<?php echo addslashes($userPhone); ?>',
+    shippingAddress: '<?php echo addslashes($userShippingAddress ?: $userAddress); ?>'
+};
+
+console.log('User saved info:', userSavedInfo);
 
 // ============================================
 // UTILITY FUNCTIONS
@@ -313,16 +449,17 @@ function formatLKR(amount) {
 }
 
 function showNotification(message, type = 'success') {
-    const colors = {
-        success: '#28a745',
-        error: '#dc3545',
-        warning: '#ffc107',
-        info: '#17a2b8'
-    };
+    const alertClass = type === 'success' ? 'alert-success' : 
+                       type === 'error' ? 'alert-danger' : 
+                       type === 'warning' ? 'alert-warning' : 'alert-info';
+    
+    const icon = type === 'success' ? 'fa-check-circle' : 
+                 type === 'error' ? 'fa-times-circle' : 
+                 type === 'warning' ? 'fa-exclamation-triangle' : 'fa-info-circle';
     
     const html = `
-        <div class="alert alert-${type} alert-dismissible fade show" role="alert" style="border-left: 4px solid ${colors[type] || '#28a745'};">
-            <i class="fas fa-${type === 'success' ? 'check-circle' : type === 'error' ? 'times-circle' : 'info-circle'} me-2"></i>
+        <div class="alert ${alertClass} alert-dismissible fade show" role="alert">
+            <i class="fas ${icon} me-2"></i>
             ${message}
             <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
         </div>
@@ -330,10 +467,9 @@ function showNotification(message, type = 'success') {
     
     $('#notificationArea').html(html);
     
-    // Auto dismiss after 3 seconds
     setTimeout(() => {
         $('#notificationArea .alert').alert('close');
-    }, 3000);
+    }, 4000);
 }
 
 // ============================================
@@ -362,6 +498,7 @@ function loadCart() {
         cart = [];
     }
     updateCartUI();
+    console.log('Cart loaded:', cart.length, 'items');
 }
 
 function updateCartCount() {
@@ -370,31 +507,26 @@ function updateCartCount() {
 }
 
 function addToCart(productId, quantity = 1) {
-    // Find product
     const product = products.find(p => p.id === productId);
     if (!product) {
         showNotification('Product not found!', 'error');
         return false;
     }
     
-    // Check stock
     if (product.stock_quantity <= 0) {
         showNotification('This product is out of stock!', 'error');
         return false;
     }
     
-    // Check if already in cart
     const existing = cart.find(item => item.id === productId);
     
     if (existing) {
-        // Check if adding more exceeds stock
         if ((existing.quantity + quantity) > product.stock_quantity) {
             showNotification(`Only ${product.stock_quantity} items available!`, 'warning');
             return false;
         }
         existing.quantity += quantity;
     } else {
-        // Check if quantity exceeds stock
         if (quantity > product.stock_quantity) {
             showNotification(`Only ${product.stock_quantity} items available!`, 'warning');
             return false;
@@ -472,7 +604,7 @@ function updateCartUI() {
     $('#cartItemsContainer').html(html);
     $('#cartTotalPrice').text(formatLKR(total));
     
-    // Event handlers for cart items
+    // Event handlers
     $('.qty-up').off('click').on('click', function() {
         const index = parseInt($(this).data('index'));
         if (index >= 0 && index < cart.length) {
@@ -516,7 +648,6 @@ function updateCartUI() {
 function renderProducts() {
     let filtered = [...products];
     
-    // Category filter
     const activeCategories = [];
     $('.category-filter:checked').each(function() {
         activeCategories.push($(this).val());
@@ -525,18 +656,15 @@ function renderProducts() {
         filtered = filtered.filter(p => activeCategories.includes(p.category));
     }
     
-    // Price filter
     const minPrice = parseFloat($('#minPrice').val()) || 0;
     const maxPrice = parseFloat($('#maxPrice').val()) || 50000;
     filtered = filtered.filter(p => p.price >= minPrice && p.price <= maxPrice);
     
-    // Tag filter
     const activeTag = $('.filter-tag.active').data('tag');
     if (activeTag) {
         filtered = filtered.filter(p => p.offerTag === activeTag);
     }
     
-    // Sort by rating
     filtered.sort((a, b) => (b.rating || 0) - (a.rating || 0));
     
     $('#filteredResultCount').text(filtered.length + ' products');
@@ -598,24 +726,22 @@ function renderProducts() {
     });
     $('#productGrid').html(html);
     
-    // ============================================
-    // ADD TO CART BUTTON HANDLER - FIXED
-    // ============================================
-    $('.add-to-cart-btn').off('click').on('click', function(e) {
+    $(document).off('click', '.add-to-cart-btn').on('click', '.add-to-cart-btn', function(e) {
         e.preventDefault();
-        e.stopPropagation();
-        
         const productId = parseInt($(this).data('id'));
-        console.log('Add to cart clicked - Product ID:', productId); // Debug
         
         <?php if ($isLoggedIn): ?>
             const result = addToCart(productId, 1);
             if (result) {
-                // Visual feedback
-                $(this).html('<i class="fas fa-check"></i> Added!');
+                const $btn = $(this);
+                const originalHtml = $btn.html();
+                $btn.html('<i class="fas fa-spinner fa-spin"></i> Adding...');
                 setTimeout(() => {
-                    $(this).html('<i class="fas fa-cart-plus"></i> Add');
-                }, 1500);
+                    $btn.html('<i class="fas fa-check"></i> Added!');
+                    setTimeout(() => {
+                        $btn.html(originalHtml);
+                    }, 1500);
+                }, 500);
             }
         <?php else: ?>
             Swal.fire({
@@ -638,7 +764,6 @@ function renderProducts() {
 // ============================================
 function initFilters() {
     $('.category-filter').on('change', renderProducts);
-    
     $('#applyPriceBtn').on('click', renderProducts);
     
     $('.filter-tag').on('click', function() {
@@ -673,6 +798,15 @@ function openCheckout() {
     <?php if ($isLoggedIn): ?>
         const total = cart.reduce((sum, i) => sum + ((i.price || 0) * (i.quantity || 0)), 0);
         $('#checkoutTotal').text(formatLKR(total));
+        
+        // Load saved info into checkout form
+        if (userSavedInfo.shippingAddress) {
+            $('#shippingAddress').val(userSavedInfo.shippingAddress);
+        }
+        if (userSavedInfo.phone) {
+            $('#phoneNumber').val(userSavedInfo.phone);
+        }
+        
         const modal = new bootstrap.Modal(document.getElementById('checkoutModal'));
         modal.show();
     <?php else: ?>
@@ -691,23 +825,32 @@ function openCheckout() {
 }
 
 // ============================================
+// SAVE USER PROFILE FUNCTION
+// ============================================
+function saveUserProfile(phone, address) {
+    return $.ajax({
+        url: 'save_profile.php',
+        method: 'POST',
+        data: {
+            phone: phone,
+            shipping_address: address
+        },
+        dataType: 'json'
+    });
+}
+
+// ============================================
 // DOCUMENT READY
 // ============================================
 $(document).ready(function() {
-    console.log('Shop page loaded'); // Debug
-    console.log('Products count:', products.length); // Debug
+    console.log('Document ready - Shop page');
     
-    // Load cart
     loadCart();
-    
-    // Render products
     renderProducts();
-    
-    // Initialize filters
     initFilters();
     
     // ============================================
-    // CHECKOUT BUTTON HANDLER
+    // CHECKOUT BUTTON
     // ============================================
     $('#checkoutBtn').on('click', function(e) {
         e.preventDefault();
@@ -746,11 +889,32 @@ $(document).ready(function() {
             return;
         }
         
+        const shippingAddress = $('#shippingAddress').val().trim();
+        const phone = $('#phoneNumber').val().trim();
+        const saveInfo = $('#saveInfoCheck').is(':checked');
+        
+        // Validate
+        if (!shippingAddress) {
+            showNotification('Please enter your shipping address', 'error');
+            $('#shippingAddress').focus();
+            return;
+        }
+        
+        if (!phone) {
+            showNotification('Please enter your phone number', 'error');
+            $('#phoneNumber').focus();
+            return;
+        }
+        
         const formData = new FormData(this);
         const total = cart.reduce((sum, i) => sum + ((i.price || 0) * (i.quantity || 0)), 0);
         
         formData.append('cart_data', JSON.stringify(cart));
         formData.append('total', total);
+        formData.append('save_info', saveInfo ? '1' : '0');
+        
+        // Disable submit button
+        $('#placeOrderBtn').prop('disabled', true).html('<i class="fas fa-spinner fa-spin"></i> Processing...');
         
         Swal.fire({
             title: 'Processing Order...',
@@ -770,8 +934,17 @@ $(document).ready(function() {
             dataType: 'json',
             success: function(response) {
                 Swal.close();
+                $('#placeOrderBtn').prop('disabled', false).html('<i class="fas fa-check-circle"></i> Place Order');
                 
                 if (response.success) {
+                    // If user opted to save info
+                    if (saveInfo && (phone !== userSavedInfo.phone || shippingAddress !== userSavedInfo.shippingAddress)) {
+                        // Save profile info in background
+                        saveUserProfile(phone, shippingAddress).done(function(profileResponse) {
+                            console.log('Profile updated:', profileResponse);
+                        });
+                    }
+                    
                     Swal.fire({
                         icon: 'success',
                         title: 'Order Placed!',
@@ -790,27 +963,32 @@ $(document).ready(function() {
             },
             error: function(xhr, status, error) {
                 Swal.close();
+                $('#placeOrderBtn').prop('disabled', false).html('<i class="fas fa-check-circle"></i> Place Order');
+                
                 console.error('Order error:', error);
                 let errorMsg = 'Could not place order. Please try again.';
                 try {
                     const response = JSON.parse(xhr.responseText);
                     if (response.message) errorMsg = response.message;
                 } catch (e) {}
+                
                 Swal.fire('Error', errorMsg, 'error');
             }
         });
     });
     
-    // ============================================
-    // CART BUTTON - Re-bind after dynamic updates
-    // ============================================
-    $(document).on('click', '#cartButton', function() {
-        // Just opens the offcanvas
-    });
+    console.log('Shop page initialization complete');
 });
 </script>
 
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
+<noscript>
+    <div class="container mt-3">
+        <div class="alert alert-danger">
+            <i class="fas fa-exclamation-triangle"></i> 
+            JavaScript is disabled. Please enable JavaScript to use the shopping features.
+        </div>
+    </div>
+</noscript>
 
 <footer class="pt-5 pb-4 mt-5">
     <div class="container">
