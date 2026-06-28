@@ -33,25 +33,31 @@ if ($isLoggedIn && isset($_SESSION['user_id'])) {
         $stmt->execute([$_SESSION['user_id']]);
         $profile = $stmt->fetch();
         if ($profile) {
-            // Prefer profile phone, fallback to reg contactNo
             $userPhone = $profile['phone'] ?: $userPhone;
             $userAddress = $profile['address'] ?? '';
             $userShippingAddress = $profile['shipping_address'] ?? '';
         }
         
     } catch (Exception $e) {
-        // Ignore
         error_log("User profile fetch error: " . $e->getMessage());
     }
 }
 
-// Fetch products from database
+// Fetch products from database with error handling
+$products = [];
+$productMap = []; // For quick lookup by ID
 try {
     $pdo = getPDOConnection();
     $stmt = $pdo->prepare("SELECT id, name, description, price, category, rating, image_url as image, offer_tag as offerTag, stock_quantity FROM products WHERE status = 'active' ORDER BY category, name");
     $stmt->execute();
     $products = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    
+    // Create a map for quick product lookup by ID
+    foreach ($products as $product) {
+        $productMap[$product['id']] = $product;
+    }
 } catch (Exception $e) {
+    error_log("Product fetch error: " . $e->getMessage());
     $products = [];
 }
 
@@ -140,14 +146,8 @@ function getDashboardLink($role) {
             100% { transform: rotate(360deg); }
         }
         
-        .checkout-field {
-            position: relative;
-        }
-        .checkout-field .edit-hint {
-            font-size: 0.75rem;
-            color: #6c757d;
-            margin-top: 4px;
-        }
+        .checkout-field { position: relative; }
+        .edit-hint { font-size: 0.75rem; color: #6c757d; margin-top: 4px; }
         .saved-info-badge {
             background: #e8f5e9;
             color: #2e7d32;
@@ -157,9 +157,47 @@ function getDashboardLink($role) {
             display: inline-block;
             margin-left: 8px;
         }
+        
+        /* Debug console */
+        .debug-console {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: #1a1a2e;
+            color: #00ff88;
+            font-family: monospace;
+            font-size: 12px;
+            padding: 10px;
+            max-height: 150px;
+            overflow-y: auto;
+            z-index: 99999;
+            display: none;
+            border-top: 2px solid #00ff88;
+        }
+        .debug-console.show {
+            display: block;
+        }
+        .debug-toggle {
+            position: fixed;
+            bottom: 10px;
+            right: 10px;
+            z-index: 99999;
+            background: #1a1a2e;
+            color: #00ff88;
+            border: 1px solid #00ff88;
+            border-radius: 5px;
+            padding: 5px 10px;
+            font-size: 10px;
+            cursor: pointer;
+        }
     </style>
 </head>
 <body>
+
+<!-- Debug Toggle Button -->
+<button class="debug-toggle" onclick="toggleDebug()">🐛 Debug</button>
+<div class="debug-console" id="debugConsole"></div>
 
 <!-- Notification Area -->
 <div class="notification-area" id="notificationArea"></div>
@@ -313,7 +351,7 @@ function getDashboardLink($role) {
     </div>
 </div>
 
-<!-- Checkout Modal - Updated with saved info -->
+<!-- Checkout Modal -->
 <div class="modal fade" id="checkoutModal" tabindex="-1">
     <div class="modal-dialog modal-lg">
         <div class="modal-content">
@@ -323,7 +361,6 @@ function getDashboardLink($role) {
             </div>
             <form id="checkoutForm">
                 <div class="modal-body">
-                    <!-- Shipping Address -->
                     <div class="mb-3 checkout-field">
                         <label class="form-label">
                             Shipping Address *
@@ -338,14 +375,12 @@ function getDashboardLink($role) {
                                   rows="3"><?php echo htmlspecialchars($userShippingAddress ?: $userAddress); ?></textarea>
                         <?php if (!empty($userShippingAddress)): ?>
                             <div class="edit-hint">
-                                <i class="fas fa-info-circle"></i> 
-                                Edit this field to change your shipping address for this order.
+                                <i class="fas fa-info-circle"></i> Edit this field to change your shipping address for this order.
                                 <a href="../users/profile.php" class="text-primary">Update saved address</a>
                             </div>
                         <?php endif; ?>
                     </div>
                     
-                    <!-- Phone Number -->
                     <div class="mb-3 checkout-field">
                         <label class="form-label">
                             Phone Number *
@@ -360,14 +395,12 @@ function getDashboardLink($role) {
                                value="<?php echo htmlspecialchars($userPhone); ?>">
                         <?php if (!empty($userPhone)): ?>
                             <div class="edit-hint">
-                                <i class="fas fa-info-circle"></i> 
-                                Edit this field to change your phone number for this order.
+                                <i class="fas fa-info-circle"></i> Edit this field to change your phone number for this order.
                                 <a href="../users/profile.php" class="text-primary">Update saved number</a>
                             </div>
                         <?php endif; ?>
                     </div>
                     
-                    <!-- Payment Method -->
                     <div class="mb-3">
                         <label class="form-label">Payment Method</label>
                         <select class="form-control" name="payment_method" id="paymentMethod">
@@ -377,13 +410,11 @@ function getDashboardLink($role) {
                         </select>
                     </div>
                     
-                    <!-- Order Notes -->
                     <div class="mb-3">
                         <label class="form-label">Order Notes</label>
                         <textarea class="form-control" name="notes" placeholder="Any special instructions (optional)" rows="2"></textarea>
                     </div>
                     
-                    <!-- Save info checkbox -->
                     <div class="mb-3">
                         <div class="form-check">
                             <input class="form-check-input" type="checkbox" id="saveInfoCheck" checked>
@@ -394,7 +425,6 @@ function getDashboardLink($role) {
                         </div>
                     </div>
                     
-                    <!-- Order Summary -->
                     <div class="alert alert-info mt-3">
                         <strong>Order Summary:</strong><br>
                         <span id="checkoutTotal">LKR 0.00</span>
@@ -421,25 +451,61 @@ function getDashboardLink($role) {
 
 <script>
 // ============================================
-// DEBUG
+// DEBUG CONSOLE
 // ============================================
-console.log('=== Shop Page Debug ===');
-console.log('jQuery version:', $.fn.jquery);
-console.log('SweetAlert2 loaded:', typeof Swal !== 'undefined');
+const debugLogs = [];
+
+function debugLog(message, data = null) {
+    const timestamp = new Date().toLocaleTimeString();
+    const logEntry = { timestamp, message, data };
+    debugLogs.push(logEntry);
+    
+    const consoleEl = document.getElementById('debugConsole');
+    if (consoleEl) {
+        const line = document.createElement('div');
+        line.textContent = `[${timestamp}] ${message}`;
+        if (data) {
+            const dataSpan = document.createElement('span');
+            dataSpan.style.color = '#ffaa00';
+            dataSpan.textContent = ' ' + JSON.stringify(data);
+            line.appendChild(dataSpan);
+        }
+        consoleEl.appendChild(line);
+        consoleEl.scrollTop = consoleEl.scrollHeight;
+    }
+    console.log(`[${timestamp}]`, message, data || '');
+}
+
+function toggleDebug() {
+    const consoleEl = document.getElementById('debugConsole');
+    consoleEl.classList.toggle('show');
+    if (consoleEl.classList.contains('show')) {
+        debugLog('Debug console opened');
+    }
+}
 
 // ============================================
 // PRODUCT DATA
 // ============================================
 const products = <?php echo json_encode($products); ?>;
+const productMap = <?php echo json_encode($productMap); ?>;
 let cart = [];
 
-// User saved info from PHP
+debugLog('Shop page loaded', { 
+    productsCount: products.length, 
+    productMapKeys: Object.keys(productMap).length,
+    isLoggedIn: <?php echo json_encode($isLoggedIn); ?>
+});
+
+// ============================================
+// USER SAVED INFO
+// ============================================
 const userSavedInfo = {
     phone: '<?php echo addslashes($userPhone); ?>',
     shippingAddress: '<?php echo addslashes($userShippingAddress ?: $userAddress); ?>'
 };
 
-console.log('User saved info:', userSavedInfo);
+debugLog('User saved info', userSavedInfo);
 
 // ============================================
 // UTILITY FUNCTIONS
@@ -466,6 +532,7 @@ function showNotification(message, type = 'success') {
     `;
     
     $('#notificationArea').html(html);
+    debugLog('Notification shown', { message, type });
     
     setTimeout(() => {
         $('#notificationArea .alert').alert('close');
@@ -479,26 +546,42 @@ function saveCart() {
     try {
         localStorage.setItem('saloonCart', JSON.stringify(cart));
         updateCartCount();
+        debugLog('Cart saved', { items: cart.length });
     } catch (e) {
         console.error('Error saving cart:', e);
+        debugLog('Error saving cart', { error: e.message });
     }
 }
 
 function loadCart() {
     try {
         const stored = localStorage.getItem('saloonCart');
+        debugLog('Loading cart from localStorage', { stored: stored ? 'found' : 'not found' });
+        
         if (stored) {
             cart = JSON.parse(stored);
             if (!Array.isArray(cart)) cart = [];
+            
+            // Validate cart items against current products
+            cart = cart.filter(item => {
+                const productExists = productMap[item.id];
+                if (!productExists) {
+                    debugLog('Removing invalid cart item', { id: item.id, name: item.name });
+                    return false;
+                }
+                return true;
+            });
         } else {
             cart = [];
         }
     } catch (e) {
         console.error('Error loading cart:', e);
+        debugLog('Error loading cart', { error: e.message });
         cart = [];
     }
+    
+    debugLog('Cart loaded', { items: cart.length });
     updateCartUI();
-    console.log('Cart loaded:', cart.length, 'items');
 }
 
 function updateCartCount() {
@@ -507,11 +590,18 @@ function updateCartCount() {
 }
 
 function addToCart(productId, quantity = 1) {
-    const product = products.find(p => p.id === productId);
+    debugLog('addToCart called', { productId, quantity });
+    
+    // Find product using the map
+    const product = productMap[productId];
+    
     if (!product) {
-        showNotification('Product not found!', 'error');
+        debugLog('Product not found in map', { productId, availableIds: Object.keys(productMap) });
+        showNotification('Product not found! Please refresh the page.', 'error');
         return false;
     }
+    
+    debugLog('Product found', { name: product.name, stock: product.stock_quantity });
     
     if (product.stock_quantity <= 0) {
         showNotification('This product is out of stock!', 'error');
@@ -526,6 +616,7 @@ function addToCart(productId, quantity = 1) {
             return false;
         }
         existing.quantity += quantity;
+        debugLog('Updated quantity for existing item', { name: product.name, newQuantity: existing.quantity });
     } else {
         if (quantity > product.stock_quantity) {
             showNotification(`Only ${product.stock_quantity} items available!`, 'warning');
@@ -539,6 +630,7 @@ function addToCart(productId, quantity = 1) {
             image: product.image || 'https://placehold.co/400x300/F5E6D8/B85C1A',
             max_stock: product.stock_quantity
         });
+        debugLog('Added new item to cart', { name: product.name, quantity });
     }
     
     saveCart();
@@ -646,6 +738,7 @@ function updateCartUI() {
 // PRODUCT DISPLAY FUNCTIONS
 // ============================================
 function renderProducts() {
+    debugLog('Rendering products', { count: products.length });
     let filtered = [...products];
     
     const activeCategories = [];
@@ -726,11 +819,30 @@ function renderProducts() {
     });
     $('#productGrid').html(html);
     
+    // ============================================
+    // ADD TO CART BUTTON HANDLER - FIXED with better error handling
+    // ============================================
     $(document).off('click', '.add-to-cart-btn').on('click', '.add-to-cart-btn', function(e) {
         e.preventDefault();
+        e.stopPropagation();
+        
         const productId = parseInt($(this).data('id'));
+        debugLog('Add to cart button clicked', { productId });
+        
+        if (isNaN(productId) || !productId) {
+            debugLog('Invalid product ID', { productId });
+            showNotification('Invalid product!', 'error');
+            return;
+        }
         
         <?php if ($isLoggedIn): ?>
+            // Check if product exists in map first
+            if (!productMap[productId]) {
+                debugLog('Product not found in map', { productId });
+                showNotification('Product not found! Please refresh the page.', 'error');
+                return;
+            }
+            
             const result = addToCart(productId, 1);
             if (result) {
                 const $btn = $(this);
@@ -744,17 +856,21 @@ function renderProducts() {
                 }, 500);
             }
         <?php else: ?>
-            Swal.fire({
-                title: 'Login Required',
-                text: 'Please login to add items to cart',
-                icon: 'info',
-                showCancelButton: true,
-                confirmButtonText: 'Login Now'
-            }).then((result) => {
-                if (result.isConfirmed) {
-                    window.location.href = '../login.php?redirect=pages/shop.php';
-                }
-            });
+            if (typeof Swal !== 'undefined') {
+                Swal.fire({
+                    title: 'Login Required',
+                    text: 'Please login to add items to cart',
+                    icon: 'info',
+                    showCancelButton: true,
+                    confirmButtonText: 'Login Now'
+                }).then((result) => {
+                    if (result.isConfirmed) {
+                        window.location.href = '../login.php?redirect=pages/shop.php';
+                    }
+                });
+            } else {
+                alert('Please login to add items to cart');
+            }
         <?php endif; ?>
     });
 }
@@ -790,6 +906,8 @@ function initFilters() {
 // CHECKOUT FUNCTIONS
 // ============================================
 function openCheckout() {
+    debugLog('Opening checkout', { cartItems: cart.length });
+    
     if (cart.length === 0) {
         showNotification('Your cart is empty!', 'warning');
         return;
@@ -799,7 +917,6 @@ function openCheckout() {
         const total = cart.reduce((sum, i) => sum + ((i.price || 0) * (i.quantity || 0)), 0);
         $('#checkoutTotal').text(formatLKR(total));
         
-        // Load saved info into checkout form
         if (userSavedInfo.shippingAddress) {
             $('#shippingAddress').val(userSavedInfo.shippingAddress);
         }
@@ -809,18 +926,23 @@ function openCheckout() {
         
         const modal = new bootstrap.Modal(document.getElementById('checkoutModal'));
         modal.show();
+        debugLog('Checkout modal opened');
     <?php else: ?>
-        Swal.fire({
-            title: 'Login Required',
-            text: 'Please login to complete your purchase',
-            icon: 'info',
-            showCancelButton: true,
-            confirmButtonText: 'Login Now'
-        }).then((result) => {
-            if (result.isConfirmed) {
-                window.location.href = '../login.php?redirect=pages/shop.php';
-            }
-        });
+        if (typeof Swal !== 'undefined') {
+            Swal.fire({
+                title: 'Login Required',
+                text: 'Please login to complete your purchase',
+                icon: 'info',
+                showCancelButton: true,
+                confirmButtonText: 'Login Now'
+            }).then((result) => {
+                if (result.isConfirmed) {
+                    window.location.href = '../login.php?redirect=pages/shop.php';
+                }
+            });
+        } else {
+            alert('Please login to complete your purchase');
+        }
     <?php endif; ?>
 }
 
@@ -828,6 +950,7 @@ function openCheckout() {
 // SAVE USER PROFILE FUNCTION
 // ============================================
 function saveUserProfile(phone, address) {
+    debugLog('Saving user profile', { phone, address });
     return $.ajax({
         url: 'save_profile.php',
         method: 'POST',
@@ -843,10 +966,15 @@ function saveUserProfile(phone, address) {
 // DOCUMENT READY
 // ============================================
 $(document).ready(function() {
-    console.log('Document ready - Shop page');
+    debugLog('Document ready - Shop page');
     
+    // Load cart first
     loadCart();
+    
+    // Render products
     renderProducts();
+    
+    // Initialize filters
     initFilters();
     
     // ============================================
@@ -861,21 +989,30 @@ $(document).ready(function() {
     // CLEAR CART BUTTON
     // ============================================
     $('#clearCartBtn').on('click', function() {
-        Swal.fire({
-            title: 'Clear Cart?',
-            text: 'This will remove all items from your cart',
-            icon: 'warning',
-            showCancelButton: true,
-            confirmButtonColor: '#d33',
-            confirmButtonText: 'Yes, clear it!'
-        }).then((result) => {
-            if (result.isConfirmed) {
+        if (typeof Swal !== 'undefined') {
+            Swal.fire({
+                title: 'Clear Cart?',
+                text: 'This will remove all items from your cart',
+                icon: 'warning',
+                showCancelButton: true,
+                confirmButtonColor: '#d33',
+                confirmButtonText: 'Yes, clear it!'
+            }).then((result) => {
+                if (result.isConfirmed) {
+                    cart = [];
+                    saveCart();
+                    updateCartUI();
+                    showNotification('Cart cleared!', 'info');
+                    debugLog('Cart cleared');
+                }
+            });
+        } else {
+            if (confirm('Clear your cart?')) {
                 cart = [];
                 saveCart();
                 updateCartUI();
-                showNotification('Cart cleared!', 'info');
             }
-        });
+        }
     });
     
     // ============================================
@@ -883,6 +1020,8 @@ $(document).ready(function() {
     // ============================================
     $('#checkoutForm').on('submit', function(e) {
         e.preventDefault();
+        
+        debugLog('Checkout form submitted');
         
         if (cart.length === 0) {
             showNotification('Your cart is empty!', 'warning');
@@ -893,7 +1032,6 @@ $(document).ready(function() {
         const phone = $('#phoneNumber').val().trim();
         const saveInfo = $('#saveInfoCheck').is(':checked');
         
-        // Validate
         if (!shippingAddress) {
             showNotification('Please enter your shipping address', 'error');
             $('#shippingAddress').focus();
@@ -906,6 +1044,8 @@ $(document).ready(function() {
             return;
         }
         
+        debugLog('Checkout validation passed', { shippingAddress, phone, saveInfo });
+        
         const formData = new FormData(this);
         const total = cart.reduce((sum, i) => sum + ((i.price || 0) * (i.quantity || 0)), 0);
         
@@ -913,16 +1053,23 @@ $(document).ready(function() {
         formData.append('total', total);
         formData.append('save_info', saveInfo ? '1' : '0');
         
-        // Disable submit button
         $('#placeOrderBtn').prop('disabled', true).html('<i class="fas fa-spinner fa-spin"></i> Processing...');
         
-        Swal.fire({
-            title: 'Processing Order...',
-            text: 'Please wait',
-            allowOutsideClick: false,
-            didOpen: () => {
-                Swal.showLoading();
-            }
+        if (typeof Swal !== 'undefined') {
+            Swal.fire({
+                title: 'Processing Order...',
+                text: 'Please wait',
+                allowOutsideClick: false,
+                didOpen: () => {
+                    Swal.showLoading();
+                }
+            });
+        }
+        
+        debugLog('Sending order to server', { 
+            total, 
+            items: cart.length,
+            saveInfo 
         });
         
         $.ajax({
@@ -933,51 +1080,75 @@ $(document).ready(function() {
             contentType: false,
             dataType: 'json',
             success: function(response) {
-                Swal.close();
+                debugLog('Order response received', response);
+                
+                if (typeof Swal !== 'undefined') {
+                    Swal.close();
+                }
                 $('#placeOrderBtn').prop('disabled', false).html('<i class="fas fa-check-circle"></i> Place Order');
                 
                 if (response.success) {
-                    // If user opted to save info
                     if (saveInfo && (phone !== userSavedInfo.phone || shippingAddress !== userSavedInfo.shippingAddress)) {
-                        // Save profile info in background
                         saveUserProfile(phone, shippingAddress).done(function(profileResponse) {
-                            console.log('Profile updated:', profileResponse);
+                            debugLog('Profile updated', profileResponse);
                         });
                     }
                     
-                    Swal.fire({
-                        icon: 'success',
-                        title: 'Order Placed!',
-                        html: `Order #${response.order_number}<br>Total: ${formatLKR(total)}<br>We'll contact you shortly.`,
-                        confirmButtonText: 'View Orders'
-                    }).then(() => {
+                    if (typeof Swal !== 'undefined') {
+                        Swal.fire({
+                            icon: 'success',
+                            title: 'Order Placed!',
+                            html: `Order #${response.order_number}<br>Total: ${formatLKR(total)}<br>We'll contact you shortly.`,
+                            confirmButtonText: 'View Orders'
+                        }).then(() => {
+                            cart = [];
+                            saveCart();
+                            updateCartUI();
+                            $('#checkoutModal').modal('hide');
+                            window.location.href = '../users/orders.php';
+                        });
+                    } else {
+                        alert('Order placed successfully!');
                         cart = [];
                         saveCart();
                         updateCartUI();
                         $('#checkoutModal').modal('hide');
                         window.location.href = '../users/orders.php';
-                    });
+                    }
                 } else {
-                    Swal.fire('Error', response.message || 'Could not place order', 'error');
+                    if (typeof Swal !== 'undefined') {
+                        Swal.fire('Error', response.message || 'Could not place order', 'error');
+                    } else {
+                        alert('Error: ' + response.message);
+                    }
+                    debugLog('Order placement failed', { message: response.message });
                 }
             },
             error: function(xhr, status, error) {
-                Swal.close();
+                if (typeof Swal !== 'undefined') {
+                    Swal.close();
+                }
                 $('#placeOrderBtn').prop('disabled', false).html('<i class="fas fa-check-circle"></i> Place Order');
                 
                 console.error('Order error:', error);
+                debugLog('Order AJAX error', { status, error, response: xhr.responseText });
+                
                 let errorMsg = 'Could not place order. Please try again.';
                 try {
                     const response = JSON.parse(xhr.responseText);
                     if (response.message) errorMsg = response.message;
                 } catch (e) {}
                 
-                Swal.fire('Error', errorMsg, 'error');
+                if (typeof Swal !== 'undefined') {
+                    Swal.fire('Error', errorMsg, 'error');
+                } else {
+                    alert('Error: ' + errorMsg);
+                }
             }
         });
     });
     
-    console.log('Shop page initialization complete');
+    debugLog('Shop page initialization complete');
 });
 </script>
 
