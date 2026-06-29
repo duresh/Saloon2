@@ -249,7 +249,7 @@ function getDashboardLink($role) {
                             </ul>
                         </div>
                     <?php else: ?>
-                        <a href="../login.php?redirect=pages/shop.php" class="btn btn-outline-elegance">
+                        <a href="../pages/login.php?redirect=index.php%23booking" class="btn btn-outline-elegance">
                             <i class="fas fa-user"></i> Sign In
                         </a>
                     <?php endif; ?>
@@ -865,7 +865,7 @@ function renderProducts() {
                     confirmButtonText: 'Login Now'
                 }).then((result) => {
                     if (result.isConfirmed) {
-                        window.location.href = '../login.php?redirect=pages/shop.php';
+                        window.location.href = '../pages/login.php?redirect=pages/shop.php';
                     }
                 });
             } else {
