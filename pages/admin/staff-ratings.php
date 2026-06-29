@@ -1,44 +1,38 @@
 <?php
-ob_start();
+// staff-ratings.php - COMPLETE STANDALONE VERSION
 session_start();
-
-// Check if user is logged in and is staff
-if (!isset($_SESSION['logged_in']) || $_SESSION['logged_in'] !== true) {
-    header('Location: ../login.php');
-    exit();
-}
-
-if (!isset($_SESSION['role']) || $_SESSION['role'] !== 'staff') {
-    header('Location: ../user/dashboard.php');
-    exit();
-}
-
 require_once '../../includes/dbcon.php';
-require_once '../../includes/helpers.php';
+
+// Check if user is logged in and has staff/admin role
+if (!isset($_SESSION['user_id']) || !in_array($_SESSION['role'] ?? '', ['admin', 'staff'])) {
+    header('Location: ../login.php');
+    exit;
+}
 
 $user_id = $_SESSION['user_id'];
+$staff_name = $_SESSION['fName'] ?? 'Staff';
 
+// Get staff details and rating data
 try {
     $pdo = getPDOConnection();
     
-    // Get staff details
+    // Get staff information
     $staff_query = "
-        SELECT s.*, r.fName as staff_name 
-        FROM staff s
-        JOIN reg r ON s.user_id = r.regID
-        WHERE s.user_id = ? AND r.cStatus = 1
+        SELECT s.*, r.fName, r.lName, r.email, r.contactNo 
+        FROM staff s 
+        JOIN reg r ON s.user_id = r.regID 
+        WHERE s.user_id = ?
     ";
     $staff_stmt = $pdo->prepare($staff_query);
     $staff_stmt->execute([$user_id]);
-    $staff = $staff_stmt->fetch();
+    $staff = $staff_stmt->fetch(PDO::FETCH_ASSOC);
     
     if (!$staff) {
-        session_destroy();
-        header('Location: ../login.php');
-        exit();
+        die("No staff record found for user_id: " . $user_id);
     }
     
-    $staff_id = $staff['id'];
+    $staff_db_id = $staff['id'] ?? 0;
+    $staff_name = $staff['fName'] ?? $staff_name;
     
     // Get rating summary
     $summary_query = "
@@ -54,384 +48,191 @@ try {
         WHERE staff_id = ?
     ";
     $summary_stmt = $pdo->prepare($summary_query);
-    $summary_stmt->execute([$staff_id]);
-    $summary = $summary_stmt->fetch();
+    $summary_stmt->execute([$staff_db_id]);
+    $summary = $summary_stmt->fetch(PDO::FETCH_ASSOC);
     
-    // Get recent ratings
+    if (!$summary) {
+        $summary = [
+            'total_ratings' => 0,
+            'average_rating' => 0,
+            'rating_5' => 0,
+            'rating_4' => 0,
+            'rating_3' => 0,
+            'rating_2' => 0,
+            'rating_1' => 0
+        ];
+    }
+    
+    // Get ratings with customer info
     $ratings_query = "
         SELECT 
-            sr.*,
+            sr.id,
+            sr.rating,
+            sr.review,
+            sr.comments,
+            sr.service_name,
+            sr.response,
+            sr.created_at,
+            sr.responded_at,
+            sr.responded_by,
             u.fName as customer_name,
+            u.lName as customer_lname,
             u.email as customer_email,
-            a.appointment_date
+            a.appointment_date,
+            a.appointment_time,
+            a.id as appointment_id
         FROM staff_ratings sr
         JOIN reg u ON sr.user_id = u.regID
-        JOIN appointments a ON sr.appointment_id = a.id
+        LEFT JOIN appointments a ON sr.appointment_id = a.id
         WHERE sr.staff_id = ?
         ORDER BY sr.created_at DESC
-        LIMIT 20
     ";
     $ratings_stmt = $pdo->prepare($ratings_query);
-    $ratings_stmt->execute([$staff_id]);
-    $ratings = $ratings_stmt->fetchAll();
+    $ratings_stmt->execute([$staff_db_id]);
+    $ratings = $ratings_stmt->fetchAll(PDO::FETCH_ASSOC);
     
 } catch (PDOException $e) {
-    error_log('Staff ratings error: ' . $e->getMessage());
-    $error = 'Unable to load ratings. Please try again later.';
+    die("Database error: " . $e->getMessage());
 }
 
+// Include staff header
 include 'header/header-staff.php';
 ?>
 
-<div class="main-content" id="mainContent">
-    <div class="ratings-container">
-        <!-- Page Header -->
-        <div class="page-header">
-            <div class="row align-items-center">
-                <div class="col-md-8">
-                    <h1><i class="fas fa-star me-2" style="color: #ffc107;"></i> My Ratings</h1>
-                    <p class="lead mb-0">View customer feedback and ratings</p>
-                </div>
-                <div class="col-md-4 text-end">
-                    <a href="staff-dashboard.php" class="btn btn-outline-secondary">
-                        <i class="fas fa-arrow-left me-2"></i>Back to Dashboard
-                    </a>
-                </div>
+<!-- Page Content -->
+<div class="container-fluid">
+    <div class="row">
+        <div class="col-12">
+            <!-- Debug Info (remove after testing) -->
+            <div class="alert alert-info">
+                <strong>Staff ID:</strong> <?php echo $staff_db_id; ?> | 
+                <strong>Total Ratings:</strong> <?php echo $summary['total_ratings']; ?> | 
+                <strong>Ratings Found:</strong> <?php echo count($ratings); ?>
             </div>
-        </div>
 
-        <!-- Rating Summary Cards -->
-        <div class="summary-grid">
-            <div class="summary-card">
-                <div class="summary-icon" style="background: rgba(255, 193, 7, 0.1); color: #ffc107;">
-                    <i class="fas fa-star"></i>
+            <!-- Statistics Cards -->
+            <div class="row mb-4">
+                <div class="col-md-3 col-6">
+                    <div class="card" style="border-left: 4px solid #6f42c1;">
+                        <div class="card-body">
+                            <h5 class="card-title mb-0"><?php echo number_format($summary['average_rating'] ?? 0, 1); ?></h5>
+                            <small class="text-muted">Average Rating</small>
+                        </div>
+                    </div>
                 </div>
-                <div class="summary-details">
-                    <div class="summary-value"><?php echo number_format($summary['average_rating'] ?? 0, 1); ?></div>
-                    <div class="summary-label">Average Rating</div>
+                <div class="col-md-3 col-6">
+                    <div class="card" style="border-left: 4px solid #28a745;">
+                        <div class="card-body">
+                            <h5 class="card-title mb-0"><?php echo $summary['total_ratings'] ?? 0; ?></h5>
+                            <small class="text-muted">Total Ratings</small>
+                        </div>
+                    </div>
                 </div>
-            </div>
-            
-            <div class="summary-card">
-                <div class="summary-icon" style="background: rgba(40, 167, 69, 0.1); color: #28a745;">
-                    <i class="fas fa-users"></i>
+                <div class="col-md-3 col-6">
+                    <div class="card" style="border-left: 4px solid #17a2b8;">
+                        <div class="card-body">
+                            <h5 class="card-title mb-0"><?php echo round(($summary['rating_5'] / max($summary['total_ratings'], 1)) * 100, 1); ?>%</h5>
+                            <small class="text-muted">5-Star Rate</small>
+                        </div>
+                    </div>
                 </div>
-                <div class="summary-details">
-                    <div class="summary-value"><?php echo $summary['total_ratings'] ?? 0; ?></div>
-                    <div class="summary-label">Total Ratings</div>
-                </div>
-            </div>
-            
-            <div class="summary-card">
-                <div class="summary-icon" style="background: rgba(23, 162, 184, 0.1); color: #17a2b8;">
-                    <i class="fas fa-chart-line"></i>
-                </div>
-                <div class="summary-details">
-                    <div class="summary-value"><?php echo round(($summary['rating_5'] / max($summary['total_ratings'], 1)) * 100, 1); ?>%</div>
-                    <div class="summary-label">5-Star Rate</div>
-                </div>
-            </div>
-            
-            <div class="summary-card">
-                <div class="summary-icon" style="background: rgba(220, 53, 69, 0.1); color: #dc3545;">
-                    <i class="fas fa-trophy"></i>
-                </div>
-                <div class="summary-details">
-                    <div class="summary-value"><?php echo $summary['rating_5'] ?? 0; ?></div>
-                    <div class="summary-label">5-Star Reviews</div>
+                <div class="col-md-3 col-6">
+                    <div class="card" style="border-left: 4px solid #ffc107;">
+                        <div class="card-body">
+                            <h5 class="card-title mb-0"><?php echo $summary['rating_5'] ?? 0; ?></h5>
+                            <small class="text-muted">5-Star Reviews</small>
+                        </div>
+                    </div>
                 </div>
             </div>
-        </div>
 
-        <!-- Rating Distribution -->
-        <div class="distribution-card">
-            <h5>Rating Distribution</h5>
-            <div class="distribution-bars">
-                <div class="distribution-row">
-                    <span class="star-label">5 Stars</span>
-                    <div class="progress-bar-container">
-                        <div class="progress-bar-fill" style="width: <?php echo ($summary['rating_5'] / max($summary['total_ratings'], 1)) * 100; ?>%"></div>
-                    </div>
-                    <span class="star-count"><?php echo $summary['rating_5'] ?? 0; ?></span>
+            <!-- Rating Distribution -->
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="fas fa-chart-bar me-2"></i>Rating Distribution</h5>
                 </div>
-                <div class="distribution-row">
-                    <span class="star-label">4 Stars</span>
-                    <div class="progress-bar-container">
-                        <div class="progress-bar-fill" style="width: <?php echo ($summary['rating_4'] / max($summary['total_ratings'], 1)) * 100; ?>%"></div>
-                    </div>
-                    <span class="star-count"><?php echo $summary['rating_4'] ?? 0; ?></span>
-                </div>
-                <div class="distribution-row">
-                    <span class="star-label">3 Stars</span>
-                    <div class="progress-bar-container">
-                        <div class="progress-bar-fill" style="width: <?php echo ($summary['rating_3'] / max($summary['total_ratings'], 1)) * 100; ?>%"></div>
-                    </div>
-                    <span class="star-count"><?php echo $summary['rating_3'] ?? 0; ?></span>
-                </div>
-                <div class="distribution-row">
-                    <span class="star-label">2 Stars</span>
-                    <div class="progress-bar-container">
-                        <div class="progress-bar-fill" style="width: <?php echo ($summary['rating_2'] / max($summary['total_ratings'], 1)) * 100; ?>%"></div>
-                    </div>
-                    <span class="star-count"><?php echo $summary['rating_2'] ?? 0; ?></span>
-                </div>
-                <div class="distribution-row">
-                    <span class="star-label">1 Star</span>
-                    <div class="progress-bar-container">
-                        <div class="progress-bar-fill" style="width: <?php echo ($summary['rating_1'] / max($summary['total_ratings'], 1)) * 100; ?>%"></div>
-                    </div>
-                    <span class="star-count"><?php echo $summary['rating_1'] ?? 0; ?></span>
+                <div class="card-body">
+                    <?php 
+                    $ratings_data = [
+                        5 => ['label' => '5 Stars', 'count' => $summary['rating_5'] ?? 0, 'color' => '#28a745'],
+                        4 => ['label' => '4 Stars', 'count' => $summary['rating_4'] ?? 0, 'color' => '#17a2b8'],
+                        3 => ['label' => '3 Stars', 'count' => $summary['rating_3'] ?? 0, 'color' => '#ffc107'],
+                        2 => ['label' => '2 Stars', 'count' => $summary['rating_2'] ?? 0, 'color' => '#fd7e14'],
+                        1 => ['label' => '1 Star', 'count' => $summary['rating_1'] ?? 0, 'color' => '#dc3545']
+                    ];
+                    $total = $summary['total_ratings'] ?? 1;
+                    ?>
+                    <?php if ($total > 0): ?>
+                        <?php foreach ($ratings_data as $stars => $data): ?>
+                        <div class="d-flex align-items-center gap-3 mb-2">
+                            <span style="width: 80px; font-size: 13px;">
+                                <?php echo $stars; ?> <i class="fas fa-star" style="color: <?php echo $data['color']; ?>;"></i>
+                            </span>
+                            <div class="flex-grow-1" style="height: 10px; background: #e9ecef; border-radius: 5px; overflow: hidden;">
+                                <div style="height: 100%; width: <?php echo ($data['count'] / $total) * 100; ?>%; background: <?php echo $data['color']; ?>;"></div>
+                            </div>
+                            <span style="width: 40px; text-align: right;"><?php echo $data['count']; ?></span>
+                        </div>
+                        <?php endforeach; ?>
+                    <?php else: ?>
+                        <div class="text-center text-muted">No ratings yet</div>
+                    <?php endif; ?>
                 </div>
             </div>
-        </div>
 
-        <!-- Ratings List -->
-        <div class="ratings-card">
-            <div class="card-header">
-                <h5><i class="fas fa-list me-2"></i> Customer Reviews</h5>
-                <div class="card-actions">
-                    <span class="badge bg-info">Latest 20 Reviews</span>
+            <!-- Ratings List -->
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="fas fa-list me-2"></i>Customer Reviews</h5>
                 </div>
-            </div>
-            
-            <div class="ratings-list">
-                <?php if (empty($ratings)): ?>
-                <div class="empty-state">
-                    <i class="fas fa-star fa-4x text-muted mb-3"></i>
-                    <h5>No Ratings Yet</h5>
-                    <p class="text-muted">Complete appointments to receive customer ratings.</p>
-                </div>
-                <?php else: ?>
-                    <?php foreach ($ratings as $rating): ?>
-                    <div class="rating-item">
-                        <div class="rating-header">
-                            <div class="customer-info">
-                                <div class="customer-avatar">
-                                    <?php echo strtoupper(substr($rating['customer_name'], 0, 1)); ?>
-                                </div>
+                <div class="card-body">
+                    <?php if (empty($ratings)): ?>
+                    <div class="text-center py-5">
+                        <i class="fas fa-star fa-4x text-muted mb-3 d-block"></i>
+                        <h5>No Ratings Yet</h5>
+                        <p class="text-muted">Complete appointments to receive customer ratings.</p>
+                    </div>
+                    <?php else: ?>
+                        <?php foreach ($ratings as $rating): 
+                            $review_text = !empty($rating['review']) ? $rating['review'] : ($rating['comments'] ?? '');
+                        ?>
+                        <div class="border-bottom py-3">
+                            <div class="d-flex justify-content-between align-items-start">
                                 <div>
-                                    <strong><?php echo htmlspecialchars($rating['customer_name']); ?></strong>
-                                    <div class="stars">
+                                    <strong><?php echo htmlspecialchars($rating['customer_name'] . ' ' . ($rating['customer_lname'] ?? '')); ?></strong>
+                                    <div>
                                         <?php for($i = 1; $i <= 5; $i++): ?>
                                             <i class="fas fa-star <?php echo $i <= $rating['rating'] ? 'text-warning' : 'text-muted'; ?>"></i>
                                         <?php endfor; ?>
                                     </div>
                                 </div>
+                                <small class="text-muted"><?php echo date('M d, Y', strtotime($rating['created_at'])); ?></small>
                             </div>
-                            <div class="rating-date">
-                                <?php echo date('M d, Y', strtotime($rating['created_at'])); ?>
-                            </div>
+                            <?php if (!empty($review_text)): ?>
+                            <p class="mt-2 mb-1"><?php echo nl2br(htmlspecialchars($review_text)); ?></p>
+                            <?php endif; ?>
+                            <?php if (!empty($rating['service_name'])): ?>
+                            <small class="text-muted"><i class="fas fa-cut me-1"></i> Service: <?php echo htmlspecialchars($rating['service_name']); ?></small>
+                            <?php endif; ?>
                         </div>
-                        <div class="rating-body">
-                            <p><?php echo nl2br(htmlspecialchars($rating['comments'] ?: 'No comments provided.')); ?></p>
-                            <small class="text-muted">
-                                <i class="fas fa-cut me-1"></i> Service: <?php echo htmlspecialchars($rating['service_name']); ?>
-                                <br>
-                                <i class="fas fa-calendar me-1"></i> Appointment on: <?php echo date('M d, Y', strtotime($rating['appointment_date'])); ?>
-                            </small>
-                        </div>
-                    </div>
-                    <?php endforeach; ?>
-                <?php endif; ?>
+                        <?php endforeach; ?>
+                    <?php endif; ?>
+                </div>
             </div>
         </div>
     </div>
 </div>
 
-<?php include 'footer/footer.php'; ?>
-
-<style>
-.ratings-container {
-    max-width: 1200px;
-    margin: 0 auto;
+<script>
+// Notification function for bell icon
+function showNotifications() {
+    Swal.fire({
+        title: 'Notifications',
+        text: 'No new notifications',
+        icon: 'info',
+        confirmButtonColor: '#6f42c1'
+    });
 }
-
-/* Summary Grid */
-.summary-grid {
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 20px;
-    margin-bottom: 25px;
-}
-
-.summary-card {
-    background: white;
-    border-radius: 16px;
-    padding: 20px;
-    display: flex;
-    align-items: center;
-    gap: 15px;
-    box-shadow: 0 2px 10px rgba(0,0,0,0.05);
-    border-left: 4px solid;
-}
-
-.summary-card:first-child { border-left-color: #ffc107; }
-.summary-card:nth-child(2) { border-left-color: #28a745; }
-.summary-card:nth-child(3) { border-left-color: #17a2b8; }
-.summary-card:last-child { border-left-color: #dc3545; }
-
-.summary-icon {
-    width: 55px;
-    height: 55px;
-    border-radius: 12px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 24px;
-}
-
-.summary-value {
-    font-size: 28px;
-    font-weight: 700;
-    line-height: 1.2;
-}
-
-.summary-label {
-    font-size: 13px;
-    color: #6c757d;
-}
-
-/* Distribution Card */
-.distribution-card {
-    background: white;
-    border-radius: 16px;
-    padding: 20px;
-    margin-bottom: 25px;
-    box-shadow: 0 2px 10px rgba(0,0,0,0.05);
-}
-
-.distribution-card h5 {
-    margin-bottom: 20px;
-    color: #333;
-    font-weight: 600;
-}
-
-.distribution-row {
-    display: flex;
-    align-items: center;
-    gap: 15px;
-    margin-bottom: 12px;
-}
-
-.star-label {
-    width: 70px;
-    font-size: 14px;
-}
-
-.progress-bar-container {
-    flex: 1;
-    height: 10px;
-    background: #e9ecef;
-    border-radius: 5px;
-    overflow: hidden;
-}
-
-.progress-bar-fill {
-    height: 100%;
-    background: #ffc107;
-    border-radius: 5px;
-    transition: width 0.5s;
-}
-
-.star-count {
-    width: 40px;
-    font-size: 13px;
-    color: #6c757d;
-}
-
-/* Ratings Card */
-.ratings-card {
-    background: white;
-    border-radius: 16px;
-    box-shadow: 0 2px 10px rgba(0,0,0,0.05);
-    overflow: hidden;
-}
-
-.card-header {
-    padding: 20px;
-    border-bottom: 1px solid #e9ecef;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-}
-
-.card-header h5 {
-    margin: 0;
-    font-weight: 600;
-}
-
-.ratings-list {
-    padding: 20px;
-}
-
-.rating-item {
-    border-bottom: 1px solid #e9ecef;
-    padding: 20px 0;
-}
-
-.rating-item:last-child {
-    border-bottom: none;
-}
-
-.rating-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 12px;
-    flex-wrap: wrap;
-    gap: 10px;
-}
-
-.customer-info {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-}
-
-.customer-avatar {
-    width: 45px;
-    height: 45px;
-    border-radius: 50%;
-    background: linear-gradient(135deg, #6f42c1, #9b6fe0);
-    color: white;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-weight: bold;
-    font-size: 18px;
-}
-
-.stars {
-    margin-top: 4px;
-}
-
-.stars i {
-    font-size: 13px;
-    margin-right: 2px;
-}
-
-.rating-date {
-    font-size: 12px;
-    color: #6c757d;
-}
-
-.rating-body p {
-    margin-bottom: 8px;
-    color: #495057;
-    line-height: 1.5;
-}
-
-/* Responsive */
-@media (max-width: 768px) {
-    .summary-grid {
-        grid-template-columns: repeat(2, 1fr);
-    }
-    .distribution-row {
-        gap: 8px;
-    }
-    .star-label {
-        width: 55px;
-        font-size: 12px;
-    }
-}
-</style>
+</script>
+</body>
+</html>

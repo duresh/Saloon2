@@ -94,7 +94,7 @@ try {
         } else {
             $_SESSION['error_message'] = "Unable to cancel this appointment.";
         }
-        header('Location: myappointments.php');
+        header('Location: appointments.php');
         exit();
     }
 
@@ -139,7 +139,7 @@ try {
             $update_stmt->execute([$new_date, $new_time, $appointment_id, $user_id]);
             
             $_SESSION['success_message'] = "Reschedule request submitted successfully!";
-            header('Location: myappointments.php');
+            header('Location: appointments.php');
             exit();
         }
     }
@@ -259,7 +259,7 @@ try {
 
 } catch (PDOException $e) {
     // Log the actual error for debugging
-    error_log('MyAppointments PDO Error: ' . $e->getMessage());
+    error_log('My Appointments PDO Error: ' . $e->getMessage());
     error_log('Error Code: ' . $e->getCode());
     error_log('Error File: ' . $e->getFile() . ' Line: ' . $e->getLine());
     
@@ -267,7 +267,7 @@ try {
     $error = "Database error: " . $e->getMessage();
     $appointments = [];
 } catch (Exception $e) {
-    error_log('MyAppointments General Error: ' . $e->getMessage());
+    error_log('My Appointments General Error: ' . $e->getMessage());
     $error = "Error: " . $e->getMessage();
     $appointments = [];
 }
@@ -683,7 +683,7 @@ include 'header/header.php';
                         <button type="submit" class="btn btn-filter flex-grow-1">
                             <i class="fas fa-filter me-1"></i>Apply Filters
                         </button>
-                        <a href="myappointments.php" class="btn btn-reset">
+                        <a href="appointments.php" class="btn btn-reset">
                             <i class="fas fa-undo me-1"></i>Reset
                         </a>
                         <button type="button" class="btn btn-export" onclick="exportPDF()">
@@ -882,7 +882,7 @@ include 'header/header.php';
                 <?php endif; ?>
             </p>
             <?php if (!empty($_GET) && (isset($_GET['status']) || isset($_GET['date_from']) || isset($_GET['date_to']) || isset($_GET['search']))): ?>
-            <a href="myappointments.php" class="btn btn-secondary no-print">
+            <a href="appointments.php" class="btn btn-secondary no-print">
                 <i class="fas fa-undo me-2"></i>Clear Filters
             </a>
             <?php else: ?>

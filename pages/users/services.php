@@ -1,4 +1,5 @@
 <?php
+// services.php - Services Page
 ob_start();
 session_start();
 
@@ -14,9 +15,14 @@ if (isset($_SESSION['role']) && $_SESSION['role'] == 'admin') {
     exit();
 }
 
+// Check if user is staff member (redirect to staff-dashboard)
+if (isset($_SESSION['role']) && $_SESSION['role'] == 'staff') {
+    header('Location: ../admin/staff-dashboard.php');
+    exit();
+}
+
 // Include database connection
 require_once '../../includes/dbcon.php';
-require_once '../../includes/helpers.php';
 
 $user_id = $_SESSION['user_id'];
 $error = '';
@@ -28,9 +34,25 @@ $records_per_page = 9;
 $offset = ($page - 1) * $records_per_page;
 
 // Filter variables
-$category_filter = isset($_GET['category']) ? $_GET['category'] : '';
+$category_filter = isset($_GET['category']) ? trim($_GET['category']) : '';
 $search = isset($_GET['search']) ? trim($_GET['search']) : '';
 $sort_by = isset($_GET['sort']) ? $_GET['sort'] : 'name';
+
+// Initialize variables
+$services = [];
+$categories = [];
+$popular_services = [];
+$stats = [
+    'total_services' => 0,
+    'total_categories' => 0,
+    'min_price' => 0,
+    'max_price' => 0,
+    'avg_price' => 0,
+    'min_duration' => 0,
+    'max_duration' => 0
+];
+$total_records = 0;
+$total_pages = 1;
 
 try {
     $pdo = getPDOConnection();
@@ -69,7 +91,9 @@ try {
         $query .= " AND (name LIKE ? OR description LIKE ? OR category LIKE ?)";
         $count_query .= " AND (name LIKE ? OR description LIKE ? OR category LIKE ?)";
         $search_param = "%$search%";
-        $params = array_merge($params, [$search_param, $search_param, $search_param]);
+        $params[] = $search_param;
+        $params[] = $search_param;
+        $params[] = $search_param;
     }
     
     // Apply sorting
@@ -94,16 +118,25 @@ try {
     // Get total records
     $count_stmt = $pdo->prepare($count_query);
     $count_stmt->execute($params);
-    $total_records = $count_stmt->fetch()['total'];
-    $total_pages = ceil($total_records / $records_per_page);
+    $count_result = $count_stmt->fetch();
+    $total_records = $count_result ? (int)$count_result['total'] : 0;
+    $total_pages = $total_records > 0 ? ceil($total_records / $records_per_page) : 1;
     
     // Add pagination
-    $query .= " LIMIT ? OFFSET ?";
-    $params[] = $records_per_page;
-    $params[] = $offset;
+    $query .= " LIMIT :limit OFFSET :offset";
+    $params[':limit'] = $records_per_page;
+    $params[':offset'] = $offset;
     
     $stmt = $pdo->prepare($query);
-    $stmt->execute($params);
+    // Bind parameters
+    foreach ($params as $key => $value) {
+        if (is_int($value)) {
+            $stmt->bindValue($key, $value, PDO::PARAM_INT);
+        } else {
+            $stmt->bindValue($key, $value, PDO::PARAM_STR);
+        }
+    }
+    $stmt->execute();
     $services = $stmt->fetchAll();
     
     // Get popular services for sidebar
@@ -124,11 +157,11 @@ try {
         SELECT 
             COUNT(*) as total_services,
             COUNT(DISTINCT category) as total_categories,
-            MIN(price) as min_price,
-            MAX(price) as max_price,
-            AVG(price) as avg_price,
-            MIN(duration) as min_duration,
-            MAX(duration) as max_duration
+            COALESCE(MIN(price), 0) as min_price,
+            COALESCE(MAX(price), 0) as max_price,
+            COALESCE(AVG(price), 0) as avg_price,
+            COALESCE(MIN(duration), 0) as min_duration,
+            COALESCE(MAX(duration), 0) as max_duration
         FROM services
         WHERE status = 'active'
     ";
@@ -138,36 +171,621 @@ try {
 } catch (PDOException $e) {
     error_log('Services page error: ' . $e->getMessage());
     $error = 'Unable to load services. Please try again later.';
+    $services = [];
+    $popular_services = [];
+} catch (Exception $e) {
+    error_log('Services page general error: ' . $e->getMessage());
+    $error = 'Unable to load services. Please try again later.';
+    $services = [];
+    $popular_services = [];
 }
 
-include 'header/headerBooking.php';
+include 'header/header.php';
 ?>
 
-<!-- Main Content -->
-<div class="main-content" id="mainContent">
+<style>
+/* Services Page Styles */
+.services-container {
+    max-width: 1400px;
+    margin: 0 auto;
+}
+
+/* Stats Grid */
+.stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 15px;
+    margin-bottom: 25px;
+}
+
+.stat-card {
+    background: white;
+    border-radius: 12px;
+    padding: 18px 20px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    transition: all 0.3s ease;
+    border-left: 4px solid var(--primary-color);
+}
+
+.stat-card:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 8px 25px rgba(0,0,0,0.1);
+}
+
+.stat-card .stat-icon {
+    width: 48px;
+    height: 48px;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 20px;
+    flex-shrink: 0;
+}
+
+.stat-card .stat-details {
+    flex: 1;
+    min-width: 0;
+}
+
+.stat-card .stat-value {
+    font-size: 20px;
+    font-weight: 700;
+    line-height: 1.2;
+    color: #333;
+}
+
+.stat-card .stat-label {
+    font-size: 11px;
+    color: #6c757d;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    margin-top: 2px;
+}
+
+/* Filter Card */
+.filter-card {
+    background: white;
+    border-radius: 12px;
+    margin-bottom: 25px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+}
+
+.filter-card .card-header {
+    background: #f8f9fa;
+    padding: 15px 20px;
+    border-bottom: 1px solid #e9ecef;
+    border-radius: 12px 12px 0 0;
+}
+
+.filter-card .card-header h5 {
+    margin: 0;
+    color: #333;
+    font-weight: 600;
+}
+
+.filter-card .card-body {
+    padding: 20px;
+}
+
+/* Services Grid */
+.services-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 25px;
+    margin-bottom: 30px;
+}
+
+.service-card {
+    background: white;
+    border-radius: 12px;
+    padding: 25px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+    transition: all 0.3s ease;
+    position: relative;
+    overflow: hidden;
+}
+
+.service-card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 8px 30px rgba(111, 66, 193, 0.12);
+}
+
+.service-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 4px;
+    background: linear-gradient(90deg, var(--primary-color), #9b6fe0);
+}
+
+.service-category-badge {
+    display: inline-block;
+    padding: 4px 12px;
+    background: rgba(111, 66, 193, 0.1);
+    color: var(--primary-color);
+    border-radius: 20px;
+    font-size: 11px;
+    font-weight: 600;
+    margin-bottom: 12px;
+}
+
+.service-name {
+    font-size: 18px;
+    font-weight: 700;
+    margin-bottom: 10px;
+    color: #333;
+}
+
+.service-description {
+    color: #6c757d;
+    font-size: 14px;
+    line-height: 1.5;
+    margin-bottom: 15px;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+.service-features {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 15px;
+    padding-top: 15px;
+    border-top: 1px solid #e9ecef;
+}
+
+.feature {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    color: #6c757d;
+}
+
+.feature i {
+    color: var(--primary-color);
+    width: 16px;
+}
+
+.feature .price {
+    font-weight: 700;
+    color: var(--primary-color);
+    font-size: 16px;
+}
+
+.service-actions {
+    display: flex;
+    gap: 10px;
+}
+
+.btn-book {
+    flex: 1;
+    padding: 10px;
+    background: var(--primary-color);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    font-size: 14px;
+}
+
+.btn-book:hover {
+    background: #5a32a0;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(111, 66, 193, 0.3);
+}
+
+.btn-details {
+    padding: 10px 15px;
+    background: #f8f9fa;
+    color: var(--primary-color);
+    border: 1px solid #e9ecef;
+    border-radius: 8px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    font-size: 14px;
+}
+
+.btn-details:hover {
+    background: #e9ecef;
+}
+
+/* Sidebar */
+.services-sidebar {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 25px;
+    margin-bottom: 30px;
+}
+
+.sidebar-card {
+    background: white;
+    border-radius: 12px;
+    padding: 20px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+}
+
+.sidebar-card .card-title {
+    margin-bottom: 15px;
+    padding-bottom: 10px;
+    border-bottom: 2px solid #e9ecef;
+    color: #333;
+    font-weight: 600;
+    font-size: 16px;
+}
+
+/* Popular List */
+.popular-list {
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+.popular-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 0;
+    border-bottom: 1px solid #f0f0f0;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.popular-item:hover {
+    background: #f8f9fa;
+    transform: translateX(5px);
+}
+
+.popular-item:last-child {
+    border-bottom: none;
+}
+
+.popular-rank {
+    width: 32px;
+    height: 32px;
+    background: linear-gradient(135deg, var(--primary-color), #9b6fe0);
+    color: white;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 13px;
+    flex-shrink: 0;
+}
+
+.popular-info {
+    flex: 1;
+}
+
+.popular-info strong {
+    display: block;
+    font-size: 14px;
+    color: #333;
+}
+
+.popular-meta {
+    display: flex;
+    gap: 12px;
+    font-size: 11px;
+    color: #6c757d;
+}
+
+.popular-meta i {
+    margin-right: 2px;
+}
+
+/* Price Range */
+.price-range {
+    margin-top: 10px;
+}
+
+.range-bar {
+    height: 6px;
+    background: #e9ecef;
+    border-radius: 3px;
+    overflow: hidden;
+    margin-bottom: 8px;
+}
+
+.range-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--primary-color), #9b6fe0);
+    border-radius: 3px;
+}
+
+.range-labels {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12px;
+    color: #6c757d;
+}
+
+/* Tips List */
+.tips-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.tips-list li {
+    padding: 6px 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: #495057;
+}
+
+.tips-list li i {
+    color: #28a745;
+    width: 18px;
+    flex-shrink: 0;
+}
+
+/* Help Card */
+.help-card {
+    background: linear-gradient(135deg, #f8f9fa, #e9ecef);
+}
+
+.help-card .btn-outline-primary {
+    color: var(--primary-color);
+    border-color: var(--primary-color);
+}
+
+.help-card .btn-outline-primary:hover {
+    background: var(--primary-color);
+    color: white;
+}
+
+/* Service Details Modal */
+.service-details-modal {
+    text-align: left;
+}
+
+.service-details-modal .service-category-badge {
+    display: inline-block;
+    padding: 4px 12px;
+    background: rgba(111, 66, 193, 0.1);
+    color: var(--primary-color);
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 600;
+    margin-bottom: 10px;
+}
+
+.service-details-modal .service-name {
+    font-size: 22px;
+    font-weight: 700;
+    color: #333;
+    margin-bottom: 15px;
+}
+
+.service-meta-details {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 20px;
+    margin: 15px 0 20px 0;
+    padding: 15px;
+    background: #f8f9fa;
+    border-radius: 10px;
+}
+
+.meta-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 15px;
+    font-weight: 500;
+}
+
+.meta-item .price {
+    color: var(--primary-color);
+    font-size: 17px;
+}
+
+.service-description-full, .service-benefits {
+    margin-top: 20px;
+}
+
+.service-description-full h6, .service-benefits h6 {
+    color: var(--primary-color);
+    margin-bottom: 10px;
+    font-weight: 600;
+}
+
+.service-benefits ul {
+    list-style: none;
+    padding: 0;
+}
+
+.service-benefits li {
+    padding: 5px 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 14px;
+}
+
+.service-benefits li i {
+    color: #28a745;
+}
+
+/* Pagination */
+.pagination-wrapper {
+    margin-top: 30px;
+    padding: 20px;
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+}
+
+.pagination {
+    margin: 0;
+}
+
+.page-link {
+    color: var(--primary-color);
+    border: none;
+    margin: 0 3px;
+    border-radius: 8px !important;
+    padding: 8px 12px;
+}
+
+.page-item.active .page-link {
+    background: var(--primary-color);
+    color: white;
+}
+
+.page-link:hover {
+    background: #f3e8ff;
+    color: var(--primary-color);
+}
+
+/* Empty State */
+.empty-state {
+    text-align: center;
+    padding: 60px 20px;
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+    grid-column: 1 / -1;
+}
+
+.empty-state i {
+    font-size: 4rem;
+    color: #dee2e6;
+    margin-bottom: 20px;
+}
+
+.empty-state h4 {
+    color: #495057;
+    margin-bottom: 10px;
+}
+
+.empty-state p {
+    color: #6c757d;
+    margin-bottom: 20px;
+}
+
+/* Responsive */
+@media (max-width: 992px) {
+    .services-grid {
+        grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    }
+}
+
+@media (max-width: 768px) {
+    .stats-grid {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 10px;
+    }
+    
+    .stat-card {
+        padding: 12px 15px;
+    }
+    
+    .stat-card .stat-value {
+        font-size: 16px;
+    }
+    
+    .services-grid {
+        grid-template-columns: 1fr;
+        gap: 15px;
+    }
+    
+    .service-card {
+        padding: 20px;
+    }
+    
+    .service-meta-details {
+        flex-direction: column;
+        gap: 10px;
+    }
+    
+    .service-actions {
+        flex-direction: column;
+    }
+    
+    .services-sidebar {
+        grid-template-columns: 1fr;
+    }
+    
+    .filter-card .card-body .row > div {
+        margin-bottom: 10px;
+    }
+}
+
+@media (max-width: 480px) {
+    .stats-grid {
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+    }
+    
+    .stat-card {
+        padding: 10px;
+    }
+    
+    .stat-card .stat-icon {
+        width: 36px;
+        height: 36px;
+        font-size: 16px;
+    }
+    
+    .stat-card .stat-value {
+        font-size: 14px;
+    }
+    
+    .stat-card .stat-label {
+        font-size: 9px;
+    }
+}
+</style>
+
+<div class="container-fluid">
     <div class="services-container">
         <!-- Page Header -->
-        <div class="page-header">
+        <div class="dashboard-header">
             <div class="row align-items-center">
                 <div class="col-md-8">
-                    <h1><i class="fas fa-spa me-2"></i> Our Services</h1>
-                    <p class="lead mb-0">Discover our range of professional salon services</p>
+                    <div class="welcome-text">
+                        <h1><i class="fas fa-spa me-2"></i>Our Services</h1>
+                        <p class="lead mb-0">Discover our range of professional salon services</p>
+                    </div>
                 </div>
                 <div class="col-md-4 text-end">
-                    <a href="dashboard.php" class="btn btn-outline-secondary me-2">
-                        <i class="fas fa-arrow-left me-2"></i>Back to Dashboard
-                    </a>
-                    <a href="book-appointment.php" class="btn btn-primary">
+                    <button class="btn btn-outline-secondary me-2" onclick="location.href='dashboard.php'">
+                        <i class="fas fa-arrow-left me-2"></i>Dashboard
+                    </button>
+                    <button class="btn btn-primary" onclick="location.href='book-appointment.php'">
                         <i class="fas fa-calendar-plus me-2"></i>Book Now
-                    </a>
+                    </button>
                 </div>
             </div>
         </div>
 
+        <!-- Error Message -->
+        <?php if (!empty($error)): ?>
+        <div class="alert alert-danger alert-dismissible fade show" role="alert">
+            <i class="fas fa-exclamation-circle me-2"></i><?php echo htmlspecialchars($error); ?>
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+        <?php endif; ?>
+
         <!-- Service Statistics -->
         <div class="stats-grid">
             <div class="stat-card">
-                <div class="stat-icon" style="background: rgba(111, 66, 193, 0.1); color: #6f42c1;">
+                <div class="stat-icon" style="background: rgba(111, 66, 193, 0.12); color: #6f42c1;">
                     <i class="fas fa-spa"></i>
                 </div>
                 <div class="stat-details">
@@ -177,7 +795,7 @@ include 'header/headerBooking.php';
             </div>
             
             <div class="stat-card">
-                <div class="stat-icon" style="background: rgba(23, 162, 184, 0.1); color: #17a2b8;">
+                <div class="stat-icon" style="background: rgba(23, 162, 184, 0.12); color: #17a2b8;">
                     <i class="fas fa-tags"></i>
                 </div>
                 <div class="stat-details">
@@ -187,7 +805,7 @@ include 'header/headerBooking.php';
             </div>
             
             <div class="stat-card">
-                <div class="stat-icon" style="background: rgba(40, 167, 69, 0.1); color: #28a745;">
+                <div class="stat-icon" style="background: rgba(40, 167, 69, 0.12); color: #28a745;">
                     <i class="fas fa-rupee-sign"></i>
                 </div>
                 <div class="stat-details">
@@ -197,11 +815,11 @@ include 'header/headerBooking.php';
             </div>
             
             <div class="stat-card">
-                <div class="stat-icon" style="background: rgba(255, 193, 7, 0.1); color: #ffc107;">
+                <div class="stat-icon" style="background: rgba(255, 193, 7, 0.12); color: #ffc107;">
                     <i class="fas fa-clock"></i>
                 </div>
                 <div class="stat-details">
-                    <div class="stat-value"><?php echo $stats['min_duration'] ?? 0; ?> - <?php echo $stats['max_duration'] ?? 0; ?></div>
+                    <div class="stat-value"><?php echo ($stats['min_duration'] ?? 0) . ' - ' . ($stats['max_duration'] ?? 0); ?></div>
                     <div class="stat-label">Duration (mins)</div>
                 </div>
             </div>
@@ -209,10 +827,10 @@ include 'header/headerBooking.php';
 
         <!-- Filters and Search -->
         <div class="filter-card">
-            <div class="filter-header">
+            <div class="card-header">
                 <h5><i class="fas fa-filter me-2"></i> Filter Services</h5>
             </div>
-            <div class="filter-body">
+            <div class="card-body">
                 <form method="GET" action="" id="filterForm">
                     <div class="row">
                         <div class="col-md-4 mb-3">
@@ -259,42 +877,44 @@ include 'header/headerBooking.php';
         </div>
 
         <!-- Services Grid -->
+        <?php if (empty($services)): ?>
+        <div class="empty-state">
+            <i class="fas fa-spa"></i>
+            <h4>No Services Found</h4>
+            <p>Try adjusting your filters or check back later.</p>
+            <a href="services.php" class="btn btn-primary">
+                <i class="fas fa-undo me-2"></i>Clear Filters
+            </a>
+        </div>
+        <?php else: ?>
         <div class="services-grid">
-            <?php if (empty($services)): ?>
-            <div class="empty-state">
-                <i class="fas fa-spa fa-4x text-muted mb-3"></i>
-                <h5>No Services Found</h5>
-                <p class="text-muted">Try adjusting your filters or check back later.</p>
-            </div>
-            <?php else: ?>
-                <?php foreach ($services as $service): ?>
-                <div class="service-card" data-service-id="<?php echo $service['id']; ?>">
-                    <div class="service-category-badge"><?php echo htmlspecialchars($service['category'] ?? 'General'); ?></div>
-                    <h3 class="service-name"><?php echo htmlspecialchars($service['name']); ?></h3>
-                    <p class="service-description"><?php echo htmlspecialchars($service['description'] ?: 'Professional service by our expert stylists.'); ?></p>
-                    
-                    <div class="service-features">
-                        <div class="feature">
-                            <i class="fas fa-clock"></i>
-                            <span><?php echo $service['duration']; ?> mins</span>
-                        </div>
-                        <div class="feature">
-                            <i class="fas fa-rupee-sign"></i>
-                            <span class="price"><?php echo number_format($service['price'], 2); ?></span>
-                        </div>
+            <?php foreach ($services as $service): ?>
+            <div class="service-card" data-service-id="<?php echo $service['id']; ?>">
+                <div class="service-category-badge"><?php echo htmlspecialchars($service['category'] ?? 'General'); ?></div>
+                <h5 class="service-name"><?php echo htmlspecialchars($service['name']); ?></h5>
+                <p class="service-description"><?php echo htmlspecialchars($service['description'] ?: 'Professional service by our expert stylists.'); ?></p>
+                
+                <div class="service-features">
+                    <div class="feature">
+                        <i class="fas fa-clock"></i>
+                        <span><?php echo $service['duration']; ?> mins</span>
                     </div>
-                    
-                    <div class="service-actions">
-                        <button class="btn-book" onclick="bookService(<?php echo $service['id']; ?>, '<?php echo htmlspecialchars($service['name']); ?>', <?php echo $service['price']; ?>, <?php echo $service['duration']; ?>)">
-                            <i class="fas fa-calendar-check me-2"></i>Book Now
-                        </button>
-                        <button class="btn-details" onclick="viewDetails(<?php echo $service['id']; ?>)">
-                            <i class="fas fa-info-circle"></i>Details
-                        </button>
+                    <div class="feature">
+                        <i class="fas fa-rupee-sign"></i>
+                        <span class="price"><?php echo number_format($service['price'], 2); ?></span>
                     </div>
                 </div>
-                <?php endforeach; ?>
-            <?php endif; ?>
+                
+                <div class="service-actions">
+                    <button class="btn-book" onclick="bookService(<?php echo $service['id']; ?>, '<?php echo htmlspecialchars($service['name']); ?>', <?php echo $service['price']; ?>, <?php echo $service['duration']; ?>)">
+                        <i class="fas fa-calendar-check me-2"></i>Book Now
+                    </button>
+                    <button class="btn-details" onclick="viewDetails(<?php echo $service['id']; ?>)">
+                        <i class="fas fa-info-circle"></i>Details
+                    </button>
+                </div>
+            </div>
+            <?php endforeach; ?>
         </div>
         
         <!-- Pagination -->
@@ -338,68 +958,71 @@ include 'header/headerBooking.php';
                     </li>
                 </ul>
             </nav>
-            <div class="text-center text-muted mt-2">
+            <div class="text-center text-muted mt-2" style="font-size: 14px;">
                 Showing <?php echo $offset + 1; ?> to <?php echo min($offset + $records_per_page, $total_records); ?> of <?php echo $total_records; ?> services
             </div>
         </div>
         <?php endif; ?>
-    </div>
-    
-    <!-- Right Sidebar -->
-    <div class="services-sidebar">
-        <!-- Popular Services -->
-        <div class="sidebar-card">
-            <h5><i class="fas fa-fire me-2 text-warning"></i> Most Popular</h5>
-            <div class="popular-list">
-                <?php foreach ($popular_services as $popular): ?>
-                <div class="popular-item" onclick="bookService(<?php echo $popular['id']; ?>, '<?php echo htmlspecialchars($popular['name']); ?>', <?php echo $popular['price']; ?>, <?php echo $popular['duration']; ?>)">
-                    <div class="popular-rank">#<?php echo array_search($popular, $popular_services) + 1; ?></div>
-                    <div class="popular-info">
-                        <strong><?php echo htmlspecialchars($popular['name']); ?></strong>
-                        <div class="popular-meta">
-                            <span><i class="fas fa-clock me-1"></i><?php echo $popular['duration']; ?> mins</span>
-                            <span><i class="fas fa-rupee-sign me-1"></i><?php echo number_format($popular['price'], 2); ?></span>
-                            <span><i class="fas fa-users me-1"></i><?php echo $popular['booking_count']; ?> bookings</span>
+        <?php endif; ?>
+        
+        <!-- Sidebar -->
+        <div class="services-sidebar">
+            <!-- Popular Services -->
+            <?php if (!empty($popular_services)): ?>
+            <div class="sidebar-card">
+                <h5 class="card-title"><i class="fas fa-fire me-2 text-warning"></i> Most Popular</h5>
+                <div class="popular-list">
+                    <?php $rank = 1; foreach ($popular_services as $popular): ?>
+                    <div class="popular-item" onclick="bookService(<?php echo $popular['id']; ?>, '<?php echo htmlspecialchars($popular['name']); ?>', <?php echo $popular['price']; ?>, <?php echo $popular['duration']; ?>)">
+                        <div class="popular-rank">#<?php echo $rank++; ?></div>
+                        <div class="popular-info">
+                            <strong><?php echo htmlspecialchars($popular['name']); ?></strong>
+                            <div class="popular-meta">
+                                <span><i class="fas fa-clock me-1"></i><?php echo $popular['duration']; ?> mins</span>
+                                <span><i class="fas fa-rupee-sign me-1"></i><?php echo number_format($popular['price'], 2); ?></span>
+                                <span><i class="fas fa-users me-1"></i><?php echo $popular['booking_count']; ?> bookings</span>
+                            </div>
                         </div>
                     </div>
-                </div>
-                <?php endforeach; ?>
-            </div>
-        </div>
-        
-        <!-- Price Range -->
-        <div class="sidebar-card">
-            <h5><i class="fas fa-chart-line me-2 text-success"></i> Price Range</h5>
-            <div class="price-range">
-                <div class="range-bar">
-                    <div class="range-fill" style="width: 100%;"></div>
-                </div>
-                <div class="range-labels">
-                    <span>Rs: <?php echo number_format($stats['min_price'] ?? 0, 0); ?></span>
-                    <span>Rs: <?php echo number_format($stats['max_price'] ?? 0, 0); ?></span>
+                    <?php endforeach; ?>
                 </div>
             </div>
-        </div>
-        
-        <!-- Quick Booking Tips -->
-        <div class="sidebar-card">
-            <h5><i class="fas fa-lightbulb me-2 text-warning"></i> Booking Tips</h5>
-            <ul class="tips-list">
-                <li><i class="fas fa-check-circle text-success"></i> Book at least 24 hours in advance</li>
-                <li><i class="fas fa-check-circle text-success"></i> Arrive 15 minutes early</li>
-                <li><i class="fas fa-check-circle text-success"></i> Cancel 24 hours before to avoid fees</li>
-                <li><i class="fas fa-check-circle text-success"></i> Bring reference photos for styling</li>
-                <li><i class="fas fa-check-circle text-success"></i> Consult with our experts for recommendations</li>
-            </ul>
-        </div>
-        
-        <!-- Need Help -->
-        <div class="sidebar-card help-card">
-            <h5><i class="fas fa-headset me-2 text-primary"></i> Need Help?</h5>
-            <p class="small">Our team is here to assist you with your selection.</p>
-            <a href="tel:0718059219" class="btn btn-outline-primary w-100">
-                <i class="fas fa-phone me-2"></i>Call Us Now
-            </a>
+            <?php endif; ?>
+            
+            <!-- Price Range -->
+            <div class="sidebar-card">
+                <h5 class="card-title"><i class="fas fa-chart-line me-2 text-success"></i> Price Range</h5>
+                <div class="price-range">
+                    <div class="range-bar">
+                        <div class="range-fill" style="width: 100%;"></div>
+                    </div>
+                    <div class="range-labels">
+                        <span>Rs: <?php echo number_format($stats['min_price'] ?? 0, 0); ?></span>
+                        <span>Rs: <?php echo number_format($stats['max_price'] ?? 0, 0); ?></span>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Quick Booking Tips -->
+            <div class="sidebar-card">
+                <h5 class="card-title"><i class="fas fa-lightbulb me-2 text-warning"></i> Booking Tips</h5>
+                <ul class="tips-list">
+                    <li><i class="fas fa-check-circle"></i> Book at least 24 hours in advance</li>
+                    <li><i class="fas fa-check-circle"></i> Arrive 15 minutes early</li>
+                    <li><i class="fas fa-check-circle"></i> Cancel 24 hours before to avoid fees</li>
+                    <li><i class="fas fa-check-circle"></i> Bring reference photos for styling</li>
+                    <li><i class="fas fa-check-circle"></i> Consult with our experts for recommendations</li>
+                </ul>
+            </div>
+            
+            <!-- Need Help -->
+            <div class="sidebar-card help-card">
+                <h5 class="card-title"><i class="fas fa-headset me-2 text-primary"></i> Need Help?</h5>
+                <p class="small mb-3">Our team is here to assist you with your selection.</p>
+                <a href="tel:0718059219" class="btn btn-outline-primary w-100">
+                    <i class="fas fa-phone me-2"></i>Call Us Now
+                </a>
+            </div>
         </div>
     </div>
 </div>
@@ -413,7 +1036,11 @@ include 'header/headerBooking.php';
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body" id="serviceModalBody">
-                Loading...
+                <div class="text-center py-4">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                </div>
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
@@ -425,6 +1052,7 @@ include 'header/headerBooking.php';
 
 <?php include 'footer/footer.php'; ?>
 
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
 <script>
 let currentService = null;
 
@@ -448,12 +1076,6 @@ $(document).ready(function() {
 });
 
 function bookService(serviceId, serviceName, price, duration) {
-    // Store in session storage for booking page
-    sessionStorage.setItem('selected_service_id', serviceId);
-    sessionStorage.setItem('selected_service_name', serviceName);
-    sessionStorage.setItem('selected_service_price', price);
-    sessionStorage.setItem('selected_service_duration', duration);
-    
     Swal.fire({
         title: 'Book This Service?',
         html: `
@@ -479,7 +1101,15 @@ function bookService(serviceId, serviceName, price, duration) {
 }
 
 function viewDetails(serviceId) {
-    showLoading();
+    // Show loading in modal
+    $('#serviceModalBody').html(`
+        <div class="text-center py-4">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+        </div>
+    `);
+    $('#serviceModal').modal('show');
     
     $.ajax({
         url: 'ajax/get-service-details.php',
@@ -487,15 +1117,13 @@ function viewDetails(serviceId) {
         data: { id: serviceId },
         dataType: 'json',
         success: function(response) {
-            hideLoading();
-            
-            if (response.success) {
+            if (response.success && response.service) {
                 currentService = response.service;
                 
                 const html = `
                     <div class="service-details-modal">
-                        <div class="service-category-badge">${currentService.category || 'General'}</div>
-                        <h3 class="service-name">${escapeHtml(currentService.name)}</h3>
+                        <div class="service-category-badge">${escapeHtml(currentService.category || 'General')}</div>
+                        <h5 class="service-name">${escapeHtml(currentService.name)}</h5>
                         <div class="service-meta-details">
                             <div class="meta-item">
                                 <i class="fas fa-clock"></i>
@@ -507,7 +1135,7 @@ function viewDetails(serviceId) {
                             </div>
                             <div class="meta-item">
                                 <i class="fas fa-tag"></i>
-                                <span>${currentService.category || 'General'}</span>
+                                <span>${escapeHtml(currentService.category || 'General')}</span>
                             </div>
                         </div>
                         <div class="service-description-full">
@@ -515,12 +1143,12 @@ function viewDetails(serviceId) {
                             <p>${escapeHtml(currentService.description || 'No description available.')}</p>
                         </div>
                         <div class="service-benefits">
-                            <h6>Benefits</h6>
+                            <h6>Why Choose This Service?</h6>
                             <ul>
-                                <li><i class="fas fa-check-circle text-success"></i> Professional service by expert stylists</li>
-                                <li><i class="fas fa-check-circle text-success"></i> Premium quality products used</li>
-                                <li><i class="fas fa-check-circle text-success"></i> Relaxing salon environment</li>
-                                <li><i class="fas fa-check-circle text-success"></i> Personalized consultation included</li>
+                                <li><i class="fas fa-check-circle"></i> Professional service by expert stylists</li>
+                                <li><i class="fas fa-check-circle"></i> Premium quality products used</li>
+                                <li><i class="fas fa-check-circle"></i> Relaxing salon environment</li>
+                                <li><i class="fas fa-check-circle"></i> Personalized consultation included</li>
                             </ul>
                         </div>
                     </div>
@@ -532,15 +1160,20 @@ function viewDetails(serviceId) {
                     $('#serviceModal').modal('hide');
                     bookService(currentService.id, currentService.name, currentService.price, currentService.duration);
                 });
-                
-                $('#serviceModal').modal('show');
             } else {
-                Swal.fire('Error', response.message || 'Could not load service details', 'error');
+                $('#serviceModalBody').html(`
+                    <div class="alert alert-danger">
+                        <i class="fas fa-exclamation-circle me-2"></i>${response.message || 'Could not load service details'}
+                    </div>
+                `);
             }
         },
         error: function() {
-            hideLoading();
-            Swal.fire('Error', 'Failed to load service details', 'error');
+            $('#serviceModalBody').html(`
+                <div class="alert alert-danger">
+                    <i class="fas fa-exclamation-circle me-2"></i>Failed to load service details. Please try again.
+                </div>
+            `);
         }
     });
 }
@@ -554,476 +1187,7 @@ function escapeHtml(unsafe) {
         .replace(/"/g, "&quot;")
         .replace(/'/g, "&#039;");
 }
-
-function showLoading() {
-    Swal.fire({
-        title: 'Loading...',
-        allowOutsideClick: false,
-        didOpen: () => {
-            Swal.showLoading();
-        }
-    });
-}
-
-function hideLoading() {
-    Swal.close();
-}
 </script>
-
-<style>
-/* Services Page Styles */
-
-.page-header {
-grid-column: 1 / -1;
-margin-bottom: 30px;
-}
-.services-container {
-    max-width: 1400px;
-    margin: 0 auto;
-    display: grid;
-    grid-template-columns: 1fr 320px;
-    gap: 25px;
-}
-
-/* Stats Grid */
-.stats-grid {
-    grid-column: 1 / -1;
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-    gap: 20px;
-    margin-bottom: 25px;
-}
-
-.stat-card {
-    background: white;
-    border-radius: 16px;
-    padding: 20px;
-    box-shadow: 0 5px 15px rgba(0,0,0,0.05);
-    display: flex;
-    align-items: center;
-    gap: 15px;
-    transition: all 0.3s;
-    border-left: 4px solid transparent;
-}
-
-.stat-card:hover {
-    transform: translateY(-3px);
-    box-shadow: 0 8px 25px rgba(0,0,0,0.1);
-}
-
-.stat-icon {
-    width: 55px;
-    height: 55px;
-    border-radius: 12px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 22px;
-}
-
-.stat-value {
-    font-size: 24px;
-    font-weight: 700;
-    line-height: 1.2;
-}
-
-.stat-label {
-    font-size: 13px;
-    color: #6c757d;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-}
-
-/* Filter Card */
-.filter-card {
-    grid-column: 1 / -1;
-    background: white;
-    border-radius: 16px;
-    margin-bottom: 25px;
-    box-shadow: 0 5px 15px rgba(0,0,0,0.05);
-    overflow: hidden;
-}
-
-.filter-header {
-    grid-column: 1 / -1;
-    padding: 15px 20px;
-    background: #f8f9fa;
-    border-bottom: 1px solid #e9ecef;
-}
-
-.filter-header h5 {
-    margin: 0;
-    color: #333;
-    font-weight: 600;
-}
-
-.filter-body {
-    padding: 20px;
-}
-
-/* Services Grid */
-.services-grid {
-    grid-column: 1 / -1;
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-    gap: 25px;
-}
-
-.service-card {
-    background: white;
-    border-radius: 16px;
-    padding: 25px;
-    box-shadow: 0 5px 20px rgba(0,0,0,0.05);
-    transition: all 0.3s;
-    position: relative;
-    overflow: hidden;
-    cursor: pointer;
-}
-
-.service-card:hover {
-    transform: translateY(-5px);
-    box-shadow: 0 10px 30px rgba(111, 66, 193, 0.15);
-}
-
-.service-card::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    height: 4px;
-    background: linear-gradient(90deg, #6f42c1, #9b6fe0);
-}
-
-.service-category-badge {
-    display: inline-block;
-    padding: 4px 12px;
-    background: rgba(111, 66, 193, 0.1);
-    color: #6f42c1;
-    border-radius: 20px;
-    font-size: 12px;
-    font-weight: 500;
-    margin-bottom: 15px;
-}
-
-.service-name {
-    font-size: 20px;
-    font-weight: 700;
-    margin-bottom: 12px;
-    color: #333;
-}
-
-.service-description {
-    color: #6c757d;
-    font-size: 14px;
-    line-height: 1.5;
-    margin-bottom: 20px;
-}
-
-.service-features {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 20px;
-    padding-top: 15px;
-    border-top: 1px solid #e9ecef;
-}
-
-.feature {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 14px;
-    color: #6c757d;
-}
-
-.feature i {
-    color: #6f42c1;
-}
-
-.feature .price {
-    font-weight: 700;
-    color: #6f42c1;
-    font-size: 18px;
-}
-
-.service-actions {
-    display: flex;
-    gap: 12px;
-}
-
-.btn-book {
-    flex: 1;
-    padding: 10px;
-    background: #6f42c1;
-    color: white;
-    border: none;
-    border-radius: 8px;
-    font-weight: 600;
-    cursor: pointer;
-    transition: all 0.3s;
-}
-
-.btn-book:hover {
-    background: #5a32a0;
-    transform: translateY(-2px);
-}
-
-.btn-details {
-    padding: 10px 15px;
-    background: #f8f9fa;
-    color: #6f42c1;
-    border: 1px solid #e9ecef;
-    border-radius: 8px;
-    font-weight: 500;
-    cursor: pointer;
-    transition: all 0.3s;
-}
-
-.btn-details:hover {
-    background: #e9ecef;
-}
-
-/* Sidebar */
-.services-sidebar {
-    grid-column: 2;
-}
-
-.sidebar-card {
-    background: white;
-    border-radius: 16px;
-    padding: 20px;
-    margin-bottom: 25px;
-    box-shadow: 0 5px 15px rgba(0,0,0,0.05);
-}
-
-.sidebar-card h5 {
-    margin-bottom: 20px;
-    padding-bottom: 10px;
-    border-bottom: 2px solid #e9ecef;
-    color: #333;
-    font-weight: 600;
-}
-
-/* Popular List */
-.popular-list {
-    max-height: 400px;
-    overflow-y: auto;
-}
-
-.popular-item {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 12px 0;
-    border-bottom: 1px solid #e9ecef;
-    cursor: pointer;
-    transition: all 0.3s;
-}
-
-.popular-item:hover {
-    background: #f8f9fa;
-    transform: translateX(5px);
-}
-
-.popular-rank {
-    width: 35px;
-    height: 35px;
-    background: linear-gradient(135deg, #6f42c1, #9b6fe0);
-    color: white;
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-weight: 700;
-}
-
-.popular-info {
-    flex: 1;
-}
-
-.popular-info strong {
-    display: block;
-    margin-bottom: 5px;
-}
-
-.popular-meta {
-    display: flex;
-    gap: 12px;
-    font-size: 12px;
-    color: #6c757d;
-}
-
-.popular-meta i {
-    margin-right: 2px;
-}
-
-/* Price Range */
-.price-range {
-    margin-top: 15px;
-}
-
-.range-bar {
-    height: 8px;
-    background: #e9ecef;
-    border-radius: 4px;
-    overflow: hidden;
-    margin-bottom: 10px;
-}
-
-.range-fill {
-    height: 100%;
-    background: linear-gradient(90deg, #6f42c1, #9b6fe0);
-    border-radius: 4px;
-}
-
-.range-labels {
-    display: flex;
-    justify-content: space-between;
-    font-size: 12px;
-    color: #6c757d;
-}
-
-/* Tips List */
-.tips-list {
-    list-style: none;
-    padding: 0;
-    margin: 0;
-}
-
-.tips-list li {
-    padding: 8px 0;
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    font-size: 13px;
-    color: #495057;
-}
-
-.tips-list li i {
-    width: 18px;
-}
-
-/* Help Card */
-.help-card {
-    background: linear-gradient(135deg, #f8f9fa, #e9ecef);
-}
-
-/* Service Details Modal */
-.service-details-modal {
-    text-align: left;
-}
-
-.service-meta-details {
-    display: flex;
-    gap: 20px;
-    margin: 20px 0;
-    padding: 15px;
-    background: #f8f9fa;
-    border-radius: 12px;
-}
-
-.meta-item {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 16px;
-    font-weight: 500;
-}
-
-.meta-item .price {
-    color: #6f42c1;
-    font-size: 18px;
-}
-
-.service-description-full, .service-benefits {
-    margin-top: 20px;
-}
-
-.service-description-full h6, .service-benefits h6 {
-    color: #6f42c1;
-    margin-bottom: 10px;
-    font-weight: 600;
-}
-
-.service-benefits ul {
-    list-style: none;
-    padding: 0;
-}
-
-.service-benefits li {
-    padding: 5px 0;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-}
-
-/* Pagination */
-.pagination-wrapper {
-    grid-column: 1 / -1;
-    margin-top: 30px;
-    padding: 20px;
-    background: white;
-    border-radius: 16px;
-    box-shadow: 0 5px 15px rgba(0,0,0,0.05);
-}
-
-.pagination {
-    margin: 0;
-}
-
-.page-link {
-    color: #6f42c1;
-    border: none;
-    margin: 0 3px;
-    border-radius: 8px !important;
-    padding: 8px 12px;
-}
-
-.page-item.active .page-link {
-    background: #6f42c1;
-    color: white;
-}
-
-/* Empty State */
-.empty-state {
-    grid-column: 1 / -1;
-    text-align: center;
-    padding: 60px;
-    background: white;
-    border-radius: 16px;
-}
-
-/* Responsive */
-@media (max-width: 992px) {
-    .services-container {
-        grid-template-columns: 1fr;
-    }
-    
-    .services-sidebar {
-        grid-column: 1;
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-        gap: 20px;
-    }
-}
-
-@media (max-width: 768px) {
-    .services-grid {
-        grid-template-columns: 1fr;
-    }
-    
-    .stats-grid {
-        grid-template-columns: repeat(2, 1fr);
-    }
-    
-    .service-meta-details {
-        flex-direction: column;
-        gap: 10px;
-    }
-    
-    .service-actions {
-        flex-direction: column;
-    }
-}
-</style>
+</body>
+</html>
+<?php ob_end_flush(); ?>

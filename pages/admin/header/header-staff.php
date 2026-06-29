@@ -214,6 +214,39 @@
             justify-content: center;
         }
         
+        /* Loading Overlay */
+        .loading-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(255,255,255,0.8);
+            z-index: 9999;
+            justify-content: center;
+            align-items: center;
+            flex-direction: column;
+        }
+        
+        .loading-overlay.show {
+            display: flex;
+        }
+        
+        .loading-spinner {
+            width: 50px;
+            height: 50px;
+            border: 4px solid #e9ecef;
+            border-top: 4px solid var(--primary-color);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
         @media (max-width: 992px) {
             .sidebar {
                 margin-left: calc(var(--sidebar-width) * -1);
@@ -267,28 +300,22 @@ $current_page = basename($_SERVER['PHP_SELF']);
                 </a>
             </li>
             <li class="nav-item">
-                <a class="nav-link <?php echo ($current_page == 'availability.php') ? 'active' : ''; ?>" href="availability.php">
-                    <i class="fas fa-clock"></i> Availability
+                <a class="nav-link <?php echo ($current_page == 'staff-orders.php') ? 'active' : ''; ?>" href="staff-orders.php">
+                    <i class="fas fa-box"></i> Orders
                 </a>
             </li>
-            
             <li class="nav-item">
-                <a class="nav-link" href="#" onclick="showNotifications()">
+                <a class="nav-link <?php echo ($current_page == 'staff-ratings.php') ? 'active' : ''; ?>" href="staff-ratings.php">
+                    <i class="fas fa-star"></i> Staff Ratings
+                </a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link <?php echo ($current_page == 'notifications.php') ? 'active' : ''; ?>" href="notifications.php">
                     <i class="fas fa-bell"></i> Notifications
                 </a>
             </li>
             <li class="nav-item">
-                <a class="nav-link" href="staff-orders.php">
-                    <i class="fa fa-star" aria-hidden="true"></i> Orders
-                </a>
-            </li>
-            <li class="nav-item">
-                <a class="nav-link active" href="staff-ratings.php">
-                    <i class="fa fa-star" aria-hidden="true"></i> Staff Ratings
-                </a>
-            </li>
-            <li class="nav-item">
-                <a class="nav-link" href="profile.php">
+                <a class="nav-link <?php echo ($current_page == 'profile.php') ? 'active' : ''; ?>" href="profile.php">
                     <i class="fas fa-user-circle"></i> My Profile
                 </a>
             </li>
@@ -302,30 +329,62 @@ $current_page = basename($_SERVER['PHP_SELF']);
         <div class="staff-info">
             <div class="d-flex align-items-center">
                 <div class="staff-avatar">
-                    <?php echo isset($staff['staff_name']) ? strtoupper(substr($staff['staff_name'], 0, 1)) : 'S'; ?>
+                    <?php 
+                    $staff_initial = 'S';
+                    if (isset($staff) && isset($staff['staff_name'])) {
+                        $staff_initial = strtoupper(substr($staff['staff_name'], 0, 1));
+                    } elseif (isset($staff_name)) {
+                        $staff_initial = strtoupper(substr($staff_name, 0, 1));
+                    } elseif (isset($_SESSION['fName'])) {
+                        $staff_initial = strtoupper(substr($_SESSION['fName'], 0, 1));
+                    }
+                    echo $staff_initial;
+                    ?>
                 </div>
                 <div>
-                    <h6 class="mb-0" style="color: white;"><?php echo isset($staff['staff_name']) ? htmlspecialchars($staff['staff_name']) : 'Staff'; ?></h6>
+                    <h6 class="mb-0" style="color: white;">
+                        <?php 
+                        if (isset($staff) && isset($staff['staff_name'])) {
+                            echo htmlspecialchars($staff['staff_name']);
+                        } elseif (isset($staff_name)) {
+                            echo htmlspecialchars($staff_name);
+                        } elseif (isset($_SESSION['fName'])) {
+                            echo htmlspecialchars($_SESSION['fName']);
+                        } else {
+                            echo 'Staff';
+                        }
+                        ?>
+                    </h6>
                     <small style="color: rgba(255,255,255,0.7);">
-                        <?php echo isset($staff['specialization']) ? htmlspecialchars($staff['specialization']) : 'Staff'; ?>
+                        <?php 
+                        if (isset($staff) && isset($staff['specialization'])) {
+                            echo htmlspecialchars($staff['specialization']);
+                        } elseif (isset($_SESSION['role'])) {
+                            echo ucfirst($_SESSION['role']);
+                        } else {
+                            echo 'Staff';
+                        }
+                        ?>
                     </small>
                 </div>
             </div>
         </div>
-        <!-- Add after staff info -->
-<div class="staff-rating-summary mt-2 text-center">
-    <?php
-    // Get rating summary for this staff
-    $rating_summary = getStaffRatingSummary($pdo, $staff_id);
-    ?>
-    <div class="rating-stars-display">
-        <?php for($i = 1; $i <= 5; $i++): ?>
-            <i class="fas fa-star <?php echo $i <= floor($rating_summary['average_rating'] ?? 0) ? 'text-warning' : 'text-muted'; ?>" style="font-size: 12px;"></i>
-        <?php endfor; ?>
-        <span class="ms-1 small">(<?php echo number_format($rating_summary['average_rating'] ?? 0, 1); ?>)</span>
-    </div>
-    <small class="text-muted"><?php echo $rating_summary['total_ratings'] ?? 0; ?> reviews</small>
-</div>
+        
+        <!-- Staff Rating Summary (if function exists) -->
+        <?php if (function_exists('getStaffRatingSummary') && isset($pdo) && isset($staff_id)): ?>
+        <div class="staff-rating-summary mt-2 text-center px-3 pb-3">
+            <?php
+            $rating_summary = getStaffRatingSummary($pdo, $staff_id);
+            ?>
+            <div class="rating-stars-display">
+                <?php for($i = 1; $i <= 5; $i++): ?>
+                    <i class="fas fa-star <?php echo $i <= floor($rating_summary['average_rating'] ?? 0) ? 'text-warning' : 'text-muted'; ?>" style="font-size: 12px;"></i>
+                <?php endfor; ?>
+                <span class="ms-1 small text-white">(<?php echo number_format($rating_summary['average_rating'] ?? 0, 1); ?>)</span>
+            </div>
+            <small class="text-muted"><?php echo $rating_summary['total_ratings'] ?? 0; ?> reviews</small>
+        </div>
+        <?php endif; ?>
     </nav>
 
     <!-- Main Content -->
@@ -351,4 +410,4 @@ $current_page = basename($_SERVER['PHP_SELF']);
             <div class="mt-3 text-primary fw-bold">Loading...</div>
         </div>
 
-        <!-- NO ALERT DIVS HERE - They are removed completely -->
+        <!-- CONTENT STARTS HERE - Pages will add their content after this -->

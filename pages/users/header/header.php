@@ -280,6 +280,15 @@
             margin-bottom: 20px;
         }
         
+        /* Auto-hide alert animation */
+        .alert-auto-hide {
+            animation: slideDown 0.5s ease forwards;
+        }
+        
+        @keyframes slideDown {
+            0% { opacity: 1; transform: translateY(0); }
+            100% { opacity: 0; transform: translateY(-20px); display: none; }
+        }
     </style>
 </head>
 <body>
@@ -297,37 +306,37 @@
         
         <ul class="nav flex-column mt-4">
             <li class="nav-item">
-                <a class="nav-link active" href="dashboard.php">
+                <a class="nav-link <?php echo basename($_SERVER['PHP_SELF']) == 'dashboard.php' ? 'active' : ''; ?>" href="dashboard.php">
                     <i class="fas fa-tachometer-alt"></i> Dashboard
                 </a>
             </li>
             <li class="nav-item">
-                <a class="nav-link" href="appointments.php">
+                <a class="nav-link <?php echo basename($_SERVER['PHP_SELF']) == 'appointments.php' || basename($_SERVER['PHP_SELF']) == 'appointments.php' ? 'active' : ''; ?>" href="appointments.php">
                     <i class="fas fa-calendar-alt"></i> My Appointments
                 </a>
             </li>
             <li class="nav-item">
-                <a class="nav-link" href="book-appointment.php">
+                <a class="nav-link <?php echo basename($_SERVER['PHP_SELF']) == 'book-appointment.php' ? 'active' : ''; ?>" href="book-appointment.php">
                     <i class="fas fa-plus-circle"></i> Book Appointment
                 </a>
             </li>
             <li class="nav-item">
-                <a class="nav-link" href="orders.php">
-                    <i class="fas fa-plus-circle"></i> My Orders
+                <a class="nav-link <?php echo basename($_SERVER['PHP_SELF']) == 'orders.php' ? 'active' : ''; ?>" href="orders.php">
+                    <i class="fas fa-shopping-cart"></i> My Orders
                 </a>
             </li>
             <li class="nav-item">
-                <a class="nav-link" href="services.php">
+                <a class="nav-link <?php echo basename($_SERVER['PHP_SELF']) == 'services.php' ? 'active' : ''; ?>" href="services.php">
                     <i class="fas fa-spa"></i> Services
                 </a>
             </li>
             <li class="nav-item">
-                <a class="nav-link" href="profile.php">
+                <a class="nav-link <?php echo basename($_SERVER['PHP_SELF']) == 'profile.php' ? 'active' : ''; ?>" href="profile.php">
                     <i class="fas fa-user-cog"></i> My Profile
                 </a>
             </li>
             <li class="nav-item">
-                <a class="nav-link" href="history.php">
+                <a class="nav-link <?php echo basename($_SERVER['PHP_SELF']) == 'history.php' ? 'active' : ''; ?>" href="history.php">
                     <i class="fas fa-history"></i> History
                 </a>
             </li>
@@ -341,12 +350,12 @@
         <div class="user-info">
             <div class="d-flex align-items-center">
                 <div class="user-avatar">
-                    <?php echo strtoupper(substr($user['fName'], 0, 1)); ?>
+                    <?php echo isset($user['fName']) ? strtoupper(substr($user['fName'], 0, 1)) : 'U'; ?>
                 </div>
                 <div>
-                    <h6 class="mb-0" style="color: white;"><?php echo htmlspecialchars($user['fName']); ?></h6>
+                    <h6 class="mb-0" style="color: white;"><?php echo isset($user['fName']) ? htmlspecialchars($user['fName']) : 'User'; ?></h6>
                     <small style="color: rgba(255,255,255,0.7);">
-                        <?php echo $user['role'] ? ucfirst($user['role']) : 'Customer'; ?>
+                        <?php echo isset($user['role']) ? ucfirst($user['role']) : 'Customer'; ?>
                     </small>
                 </div>
             </div>
@@ -360,7 +369,7 @@
             <div class="row align-items-center">
                 <div class="col-md-8">
                     <div class="welcome-text">
-                        <h1>Welcome back, <?php echo htmlspecialchars($user['fName']); ?>!</h1>
+                        <h1>Welcome back, <?php echo isset($user['fName']) ? htmlspecialchars($user['fName']) : 'User'; ?>!</h1>
                         <p class="lead mb-0">Manage your salon appointments and services</p>
                     </div>
                 </div>
@@ -377,6 +386,18 @@
             </div>
         </div>
 
-        <?php if(isset($error)): ?>
-        <div class="alert alert-danger"><?php echo $error; ?></div>
+        <!-- Error Message - Only shown if there's an actual error -->
+        <?php if (!empty($error)): ?>
+        <div class="alert alert-danger alert-dismissible fade show alert-auto-hide" role="alert" id="headerErrorAlert">
+            <i class="fas fa-exclamation-circle me-2"></i><?php echo htmlspecialchars($error); ?>
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+        <?php endif; ?>
+        
+        <!-- Success Message -->
+        <?php if (!empty($success)): ?>
+        <div class="alert alert-success alert-dismissible fade show alert-auto-hide" role="alert" id="headerSuccessAlert">
+            <i class="fas fa-check-circle me-2"></i><?php echo htmlspecialchars($success); ?>
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
         <?php endif; ?>
