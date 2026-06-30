@@ -284,41 +284,80 @@ $current_page = basename($_SERVER['PHP_SELF']);
         </div>
         
         <ul class="nav flex-column mt-4">
+            <!-- Dashboard -->
             <li class="nav-item">
                 <a class="nav-link <?php echo ($current_page == 'staff-dashboard.php') ? 'active' : ''; ?>" href="staff-dashboard.php">
                     <i class="fas fa-tachometer-alt"></i> Dashboard
                 </a>
             </li>
+            
+            <!-- Schedule Management -->
             <li class="nav-item">
                 <a class="nav-link <?php echo ($current_page == 'my-schedule.php') ? 'active' : ''; ?>" href="my-schedule.php">
                     <i class="fas fa-calendar-alt"></i> My Schedule
                 </a>
             </li>
             <li class="nav-item">
+                <a class="nav-link <?php echo ($current_page == 'staff-exceptions.php') ? 'active' : ''; ?>" href="staff-exceptions.php">
+                    <i class="fas fa-calendar-exclamation"></i> Schedule Exceptions
+                </a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link <?php echo ($current_page == 'staff-leave.php') ? 'active' : ''; ?>" href="staff-leave.php">
+                    <i class="fas fa-clock"></i> Leave Requests
+                </a>
+            </li>
+            
+            <!-- Appointments -->
+            <li class="nav-item">
                 <a class="nav-link <?php echo ($current_page == 'staff-history.php') ? 'active' : ''; ?>" href="staff-history.php">
                     <i class="fas fa-history"></i> Appointment History
                 </a>
             </li>
+            
+            <!-- Orders -->
             <li class="nav-item">
                 <a class="nav-link <?php echo ($current_page == 'staff-orders.php') ? 'active' : ''; ?>" href="staff-orders.php">
                     <i class="fas fa-box"></i> Orders
                 </a>
             </li>
+            
+            <!-- Ratings -->
             <li class="nav-item">
                 <a class="nav-link <?php echo ($current_page == 'staff-ratings.php') ? 'active' : ''; ?>" href="staff-ratings.php">
                     <i class="fas fa-star"></i> Staff Ratings
                 </a>
             </li>
+            
+            <!-- Performance -->
+            <li class="nav-item">
+                <a class="nav-link <?php echo ($current_page == 'staff-performance.php') ? 'active' : ''; ?>" href="staff-performance.php">
+                    <i class="fas fa-chart-line"></i> My Performance
+                </a>
+            </li>
+            
+            <!-- Documents -->
+            <li class="nav-item">
+                <a class="nav-link <?php echo ($current_page == 'staff-documents.php') ? 'active' : ''; ?>" href="staff-documents.php">
+                    <i class="fas fa-file-alt"></i> My Documents
+                </a>
+            </li>
+            
+            <!-- Notifications -->
             <li class="nav-item">
                 <a class="nav-link <?php echo ($current_page == 'notifications.php') ? 'active' : ''; ?>" href="notifications.php">
                     <i class="fas fa-bell"></i> Notifications
                 </a>
             </li>
+            
+            <!-- Profile -->
             <li class="nav-item">
                 <a class="nav-link <?php echo ($current_page == 'profile.php') ? 'active' : ''; ?>" href="profile.php">
                     <i class="fas fa-user-circle"></i> My Profile
                 </a>
             </li>
+            
+            <!-- Logout -->
             <li class="nav-item mt-5">
                 <a class="nav-link text-danger" href="../logout.php">
                     <i class="fas fa-sign-out-alt"></i> Logout
@@ -370,7 +409,7 @@ $current_page = basename($_SERVER['PHP_SELF']);
             </div>
         </div>
         
-        <!-- Staff Rating Summary (if function exists) -->
+        <!-- Staff Rating Summary -->
         <?php if (function_exists('getStaffRatingSummary') && isset($pdo) && isset($staff_id)): ?>
         <div class="staff-rating-summary mt-2 text-center px-3 pb-3">
             <?php
