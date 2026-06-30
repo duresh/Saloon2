@@ -153,7 +153,7 @@ try {
     die("Database error: " . $e->getMessage());
 }
 
-// Handle appointment actions
+// Handle AJAX requests
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     header('Content-Type: application/json');
     
@@ -191,10 +191,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 $update_fields[] = "status = ?";
                 $params[] = $status;
                 $update_fields[] = "modified_at = NOW()";
-                
-                if ($status == 'completed' || $status == 'cancelled') {
-                    $update_fields[] = "modified_at = NOW()";
-                }
                 
                 // If status is cancelled, log the reason
                 if ($status == 'cancelled' && !empty($reason)) {
@@ -325,35 +321,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     } catch (Exception $e) {
         $pdo->rollBack();
         echo json_encode(['success' => false, 'message' => 'Error: ' . $e->getMessage()]);
-    }
-    exit;
-}
-
-// Handle quick actions via GET
-if (isset($_GET['action']) && isset($_GET['id'])) {
-    $action = $_GET['action'];
-    $id = (int)$_GET['id'];
-    
-    try {
-        if ($action == 'confirm') {
-            $stmt = $pdo->prepare("UPDATE appointments SET status = 'confirmed', modified_at = NOW() WHERE id = ?");
-            $stmt->execute([$id]);
-            header('Location: manage-appointments.php?success=confirmed');
-        } elseif ($action == 'complete') {
-            $stmt = $pdo->prepare("UPDATE appointments SET status = 'completed', modified_at = NOW() WHERE id = ?");
-            $stmt->execute([$id]);
-            header('Location: manage-appointments.php?success=completed');
-        } elseif ($action == 'cancel') {
-            $stmt = $pdo->prepare("UPDATE appointments SET status = 'cancelled', modified_at = NOW() WHERE id = ?");
-            $stmt->execute([$id]);
-            header('Location: manage-appointments.php?success=cancelled');
-        } elseif ($action == 'delete') {
-            $stmt = $pdo->prepare("DELETE FROM appointments WHERE id = ?");
-            $stmt->execute([$id]);
-            header('Location: manage-appointments.php?success=deleted');
-        }
-    } catch (Exception $e) {
-        header('Location: manage-appointments.php?error=' . urlencode($e->getMessage()));
     }
     exit;
 }
@@ -581,61 +548,28 @@ include 'header/header-admin.php';
                                             </span>
                                         </td>
                                         <td>
-                                            <div class="dropdown">
-                                                <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown">
-                                                    <i class="fas fa-cog"></i>
+                                            <div class="btn-group">
+                                                <button class="btn btn-sm btn-info" onclick="viewAppointment(<?php echo $appointment['id']; ?>)">
+                                                    <i class="fas fa-eye"></i>
                                                 </button>
-                                                <ul class="dropdown-menu">
-                                                    <li>
-                                                        <a class="dropdown-item" href="#" onclick="viewAppointment(<?php echo $appointment['id']; ?>)">
-                                                            <i class="fas fa-eye me-2"></i>View Details
-                                                        </a>
-                                                    </li>
-                                                    <li>
-                                                        <a class="dropdown-item" href="#" onclick="editAppointment(<?php echo $appointment['id']; ?>)">
-                                                            <i class="fas fa-edit me-2"></i>Edit
-                                                        </a>
-                                                    </li>
-                                                    <?php if ($appointment['status'] == 'pending'): ?>
-                                                    <li>
-                                                        <a class="dropdown-item text-success" href="manage-appointments.php?action=confirm&id=<?php echo $appointment['id']; ?>">
-                                                            <i class="fas fa-check me-2"></i>Confirm
-                                                        </a>
-                                                    </li>
-                                                    <li>
-                                                        <a class="dropdown-item text-danger" href="#" onclick="cancelAppointment(<?php echo $appointment['id']; ?>)">
-                                                            <i class="fas fa-times me-2"></i>Cancel
-                                                        </a>
-                                                    </li>
-                                                    <?php endif; ?>
-                                                    <?php if ($appointment['status'] == 'confirmed' || $appointment['status'] == 'pending'): ?>
-                                                    <li>
-                                                        <a class="dropdown-item text-info" href="#" onclick="rescheduleAppointment(<?php echo $appointment['id']; ?>)">
-                                                            <i class="fas fa-calendar-alt me-2"></i>Reschedule
-                                                        </a>
-                                                    </li>
-                                                    <li>
-                                                        <a class="dropdown-item text-warning" href="#" onclick="assignStaff(<?php echo $appointment['id']; ?>)">
-                                                            <i class="fas fa-user-plus me-2"></i>Assign Staff
-                                                        </a>
-                                                    </li>
-                                                    <?php endif; ?>
-                                                    <?php if ($appointment['status'] == 'confirmed'): ?>
-                                                    <li>
-                                                        <a class="dropdown-item text-success" href="manage-appointments.php?action=complete&id=<?php echo $appointment['id']; ?>">
-                                                            <i class="fas fa-check-double me-2"></i>Mark Complete
-                                                        </a>
-                                                    </li>
-                                                    <?php endif; ?>
-                                                    <li>
-                                                        <hr class="dropdown-divider">
-                                                    </li>
-                                                    <li>
-                                                        <a class="dropdown-item text-danger" href="#" onclick="deleteAppointment(<?php echo $appointment['id']; ?>)">
-                                                            <i class="fas fa-trash me-2"></i>Delete
-                                                        </a>
-                                                    </li>
-                                                </ul>
+                                                <button class="btn btn-sm btn-warning" onclick="editAppointment(<?php echo $appointment['id']; ?>)">
+                                                    <i class="fas fa-edit"></i>
+                                                </button>
+                                                <?php if ($appointment['status'] == 'pending'): ?>
+                                                <button class="btn btn-sm btn-success" onclick="confirmAppointment(<?php echo $appointment['id']; ?>)">
+                                                    <i class="fas fa-check"></i>
+                                                </button>
+                                                <?php endif; ?>
+                                                <?php if ($appointment['status'] == 'confirmed'): ?>
+                                                <button class="btn btn-sm btn-success" onclick="completeAppointment(<?php echo $appointment['id']; ?>)">
+                                                    <i class="fas fa-check-double"></i>
+                                                </button>
+                                                <?php endif; ?>
+                                                <?php if ($appointment['status'] == 'pending' || $appointment['status'] == 'confirmed'): ?>
+                                                <button class="btn btn-sm btn-danger" onclick="cancelAppointment(<?php echo $appointment['id']; ?>)">
+                                                    <i class="fas fa-times"></i>
+                                                </button>
+                                                <?php endif; ?>
                                             </div>
                                         </td>
                                     </tr>
@@ -716,96 +650,6 @@ include 'header/header-admin.php';
     </div>
 </div>
 
-<!-- Assign Staff Modal -->
-<div class="modal fade" id="assignStaffModal" tabindex="-1">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title"><i class="fas fa-user-plus me-2"></i>Assign Staff</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body">
-                <input type="hidden" id="assignAppointmentId">
-                <div class="mb-3">
-                    <label class="form-label">Select Staff Member</label>
-                    <select class="form-select" id="assignStaffSelect">
-                        <option value="">Select Staff...</option>
-                        <?php foreach ($staff_list as $staff): ?>
-                        <option value="<?php echo $staff['id']; ?>">
-                            <?php echo htmlspecialchars($staff['fName'] . ' ' . ($staff['lName'] ?? '')); ?>
-                        </option>
-                        <?php endforeach; ?>
-                    </select>
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-primary" onclick="submitAssignStaff()">
-                    <i class="fas fa-check me-2"></i>Assign
-                </button>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- Reschedule Modal -->
-<div class="modal fade" id="rescheduleModal" tabindex="-1">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title"><i class="fas fa-calendar-alt me-2"></i>Reschedule Appointment</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body">
-                <input type="hidden" id="rescheduleAppointmentId">
-                <div class="mb-3">
-                    <label class="form-label">New Date</label>
-                    <input type="date" class="form-control" id="rescheduleDate">
-                </div>
-                <div class="mb-3">
-                    <label class="form-label">New Time</label>
-                    <input type="time" class="form-control" id="rescheduleTime">
-                </div>
-                <div class="mb-3">
-                    <label class="form-label">Reason (optional)</label>
-                    <textarea class="form-control" id="rescheduleReason" rows="2" placeholder="Reason for reschedule..."></textarea>
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-primary" onclick="submitReschedule()">
-                    <i class="fas fa-calendar-check me-2"></i>Reschedule
-                </button>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- Cancel Modal -->
-<div class="modal fade" id="cancelModal" tabindex="-1">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title text-danger"><i class="fas fa-times-circle me-2"></i>Cancel Appointment</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body">
-                <input type="hidden" id="cancelAppointmentId">
-                <div class="mb-3">
-                    <label class="form-label">Reason for cancellation</label>
-                    <textarea class="form-control" id="cancelReason" rows="3" placeholder="Please provide a reason..."></textarea>
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-danger" onclick="submitCancel()">
-                    <i class="fas fa-times me-2"></i>Cancel Appointment
-                </button>
-            </div>
-        </div>
-    </div>
-</div>
-
 <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
@@ -880,174 +724,130 @@ function editAppointment(id) {
     window.location.href = 'edit-appointment.php?id=' + id;
 }
 
-// Assign staff
-function assignStaff(id) {
-    $('#assignAppointmentId').val(id);
-    $('#assignStaffSelect').val('');
-    $('#assignStaffModal').modal('show');
-}
-
-function submitAssignStaff() {
-    var appointmentId = $('#assignAppointmentId').val();
-    var staffId = $('#assignStaffSelect').val();
-    
-    if (!staffId) {
-        Swal.fire('Error', 'Please select a staff member', 'error');
-        return;
-    }
-    
-    $.ajax({
-        url: window.location.href,
-        method: 'POST',
-        data: {
-            action: 'assign_staff',
-            appointment_id: appointmentId,
-            staff_id: staffId
-        },
-        dataType: 'json',
-        beforeSend: function() {
-            Swal.fire({ title: 'Assigning...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
-        },
-        success: function(response) {
-            Swal.close();
-            $('#assignStaffModal').modal('hide');
-            if (response.success) {
-                Swal.fire('Success', response.message, 'success').then(() => location.reload());
-            } else {
-                Swal.fire('Error', response.message, 'error');
-            }
-        },
-        error: function() {
-            Swal.close();
-            Swal.fire('Error', 'Failed to assign staff', 'error');
-        }
-    });
-}
-
-// Reschedule appointment
-function rescheduleAppointment(id) {
-    $('#rescheduleAppointmentId').val(id);
-    $('#rescheduleDate').val('');
-    $('#rescheduleTime').val('');
-    $('#rescheduleReason').val('');
-    $('#rescheduleModal').modal('show');
-}
-
-function submitReschedule() {
-    var appointmentId = $('#rescheduleAppointmentId').val();
-    var newDate = $('#rescheduleDate').val();
-    var newTime = $('#rescheduleTime').val();
-    var reason = $('#rescheduleReason').val();
-    
-    if (!newDate || !newTime) {
-        Swal.fire('Error', 'Please select date and time', 'error');
-        return;
-    }
-    
-    $.ajax({
-        url: window.location.href,
-        method: 'POST',
-        data: {
-            action: 'reschedule',
-            appointment_id: appointmentId,
-            new_date: newDate,
-            new_time: newTime,
-            reason: reason
-        },
-        dataType: 'json',
-        beforeSend: function() {
-            Swal.fire({ title: 'Rescheduling...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
-        },
-        success: function(response) {
-            Swal.close();
-            $('#rescheduleModal').modal('hide');
-            if (response.success) {
-                Swal.fire('Success', response.message, 'success').then(() => location.reload());
-            } else {
-                Swal.fire('Error', response.message, 'error');
-            }
-        },
-        error: function() {
-            Swal.close();
-            Swal.fire('Error', 'Failed to reschedule', 'error');
-        }
-    });
-}
-
-// Cancel appointment
-function cancelAppointment(id) {
-    $('#cancelAppointmentId').val(id);
-    $('#cancelReason').val('');
-    $('#cancelModal').modal('show');
-}
-
-function submitCancel() {
-    var appointmentId = $('#cancelAppointmentId').val();
-    var reason = $('#cancelReason').val();
-    
-    $.ajax({
-        url: window.location.href,
-        method: 'POST',
-        data: {
-            action: 'update_status',
-            appointment_id: appointmentId,
-            status: 'cancelled',
-            reason: reason
-        },
-        dataType: 'json',
-        beforeSend: function() {
-            Swal.fire({ title: 'Cancelling...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
-        },
-        success: function(response) {
-            Swal.close();
-            $('#cancelModal').modal('hide');
-            if (response.success) {
-                Swal.fire('Success', response.message, 'success').then(() => location.reload());
-            } else {
-                Swal.fire('Error', response.message, 'error');
-            }
-        },
-        error: function() {
-            Swal.close();
-            Swal.fire('Error', 'Failed to cancel', 'error');
-        }
-    });
-}
-
-// Delete appointment
-function deleteAppointment(id) {
+// Confirm appointment
+function confirmAppointment(id) {
     Swal.fire({
-        title: 'Delete Appointment?',
-        text: 'This action cannot be undone.',
-        icon: 'warning',
+        title: 'Confirm Appointment?',
+        text: 'Are you sure you want to confirm this appointment?',
+        icon: 'question',
         showCancelButton: true,
-        confirmButtonText: 'Yes, delete',
+        confirmButtonText: 'Yes, confirm',
         cancelButtonText: 'Cancel',
-        confirmButtonColor: '#dc3545'
+        confirmButtonColor: '#28a745'
     }).then((result) => {
         if (result.isConfirmed) {
             $.ajax({
                 url: window.location.href,
                 method: 'POST',
                 data: {
-                    action: 'delete',
-                    appointment_id: id
+                    action: 'update_status',
+                    appointment_id: id,
+                    status: 'confirmed'
                 },
                 dataType: 'json',
                 beforeSend: function() {
-                    Swal.fire({ title: 'Deleting...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+                    Swal.fire({ title: 'Processing...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
                 },
                 success: function(response) {
                     Swal.close();
                     if (response.success) {
-                        Swal.fire('Deleted', response.message, 'success').then(() => location.reload());
+                        Swal.fire('Success', response.message, 'success').then(() => location.reload());
                     } else {
                         Swal.fire('Error', response.message, 'error');
                     }
                 },
                 error: function() {
                     Swal.close();
-                    Swal.fire('Error', 'Failed to delete', 'error');
+                    Swal.fire('Error', 'Failed to confirm appointment', 'error');
+                }
+            });
+        }
+    });
+}
+
+// Complete appointment
+function completeAppointment(id) {
+    Swal.fire({
+        title: 'Mark as Completed?',
+        text: 'Are you sure you want to mark this appointment as completed?',
+        icon: 'question',
+        showCancelButton: true,
+        confirmButtonText: 'Yes, complete',
+        cancelButtonText: 'Cancel',
+        confirmButtonColor: '#28a745'
+    }).then((result) => {
+        if (result.isConfirmed) {
+            $.ajax({
+                url: window.location.href,
+                method: 'POST',
+                data: {
+                    action: 'update_status',
+                    appointment_id: id,
+                    status: 'completed'
+                },
+                dataType: 'json',
+                beforeSend: function() {
+                    Swal.fire({ title: 'Processing...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+                },
+                success: function(response) {
+                    Swal.close();
+                    if (response.success) {
+                        Swal.fire('Success', response.message, 'success').then(() => location.reload());
+                    } else {
+                        Swal.fire('Error', response.message, 'error');
+                    }
+                },
+                error: function() {
+                    Swal.close();
+                    Swal.fire('Error', 'Failed to complete appointment', 'error');
+                }
+            });
+        }
+    });
+}
+
+// Cancel appointment
+function cancelAppointment(id) {
+    Swal.fire({
+        title: 'Cancel Appointment?',
+        input: 'textarea',
+        inputPlaceholder: 'Reason for cancellation (optional)',
+        inputLabel: 'Reason',
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonText: 'Yes, cancel',
+        cancelButtonText: 'Cancel',
+        confirmButtonColor: '#dc3545',
+        preConfirm: (reason) => {
+            return { reason: reason };
+        }
+    }).then((result) => {
+        if (result.isConfirmed) {
+            var reason = result.value ? result.value.reason : '';
+            $.ajax({
+                url: window.location.href,
+                method: 'POST',
+                data: {
+                    action: 'update_status',
+                    appointment_id: id,
+                    status: 'cancelled',
+                    reason: reason
+                },
+                dataType: 'json',
+                beforeSend: function() {
+                    Swal.fire({ title: 'Processing...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+                },
+                success: function(response) {
+                    Swal.close();
+                    if (response.success) {
+                        Swal.fire('Success', response.message, 'success').then(() => location.reload());
+                    } else {
+                        Swal.fire('Error', response.message, 'error');
+                    }
+                },
+                error: function() {
+                    Swal.close();
+                    Swal.fire('Error', 'Failed to cancel appointment', 'error');
                 }
             });
         }
